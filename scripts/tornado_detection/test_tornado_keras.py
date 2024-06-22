@@ -18,9 +18,18 @@ import pandas as pd
 import keras
 
 from tornet.data.tf.loader import make_ds
-from tornet.metrics.tf import metrics as tfm
+from tornet.metrics.keras import metrics as tfm
+
+import logging
+logging.basicConfig(level=logging.INFO)
 
 data_root=os.environ['TORNET_ROOT']
+logging.info('TORNET_ROOT='+data_root)
+
+# Assume we are using tfds if TFDS_DATA_DIR is defined
+from_tfds=('TFDS_DATA_DIR' in os.environ)
+if from_tfds:
+    logging.info('Using TFDS dataset location at '+os.environ['TFDS_DATA_DIR'])
 
 FILTER_WARNINGS=False
 
@@ -35,7 +44,8 @@ def main():
                       years=test_years,
                       batch_size=64,
                       filter_warnings=FILTER_WARNINGS,
-                      include_az=False)   
+                      include_az=False,
+                      from_tfds=from_tfds)   
     
     model = keras.saving.load_model(trained_model,compile=False)
 

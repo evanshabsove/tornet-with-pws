@@ -14,7 +14,7 @@ Delivered to the U.S. Government with Unlimited Rights, as defined in DFARS Part
 from typing import Dict, List, Tuple
 import numpy as np
 import keras
-from tornet.models.tf.layers import CoordConv2D, FillNaNs
+from tornet.models.keras.layers import CoordConv2D, FillNaNs
 from tornet.data.constants import CHANNEL_MIN_MAX, ALL_VARIABLES
 
 
@@ -25,7 +25,7 @@ def build_model(shape:Tuple[int]=(120,240,2),
                 l2_reg:float=0.001,
                 background_flag:float=-3.0,
                 include_range_folded:bool=True,
-                head='mlp'):
+                head='maxpool'):
     # Create input layers for each input_variables
     inputs = {}
     for v in input_variables:
