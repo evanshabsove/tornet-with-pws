@@ -15,24 +15,26 @@ import os
 import numpy as np
 import json
 import shutil
-import tensorflow as tf
 import keras
 
+import logging
+logging.basicConfig(level=logging.INFO)
+
+from tornet.data.loader import get_dataloader
 from tornet.data.preprocess import get_shape
-from tornet.data.tf.loader import make_ds
 from tornet.data.constants import ALL_VARIABLES
 
-from tornet.models.tf.losses import mae_loss
+from tornet.models.keras.losses import mae_loss
 
-from tornet.models.tf.cnn_baseline import build_model
+from tornet.models.keras.cnn_baseline import build_model
 
-from tornet.metrics.tf import metrics as tfm
+from tornet.metrics.keras import metrics as tfm
 
 from tornet.utils.general import make_exp_dir, make_callback_dirs
 
 EXP_DIR=os.environ.get('EXP_DIR','.')
 DATA_ROOT=os.environ['TORNET_ROOT']
-from_tfds = True
+logging.info('TORNET_ROOT='+DATA_ROOT)
 
 DEFAULT_CONFIG={
     'epochs':10,
@@ -54,14 +56,11 @@ DEFAULT_CONFIG={
     'label_smooth':0,
     'loss':'cce',
     'head':'maxpool',
-    'filter_warnings':False,
-    'filter_ef0':False,
     'exp_name':'tornet_baseline',
-    'exp_dir':EXP_DIR
+    'exp_dir':EXP_DIR,
+    'dataloader':"keras",
+    'dataloader_kwargs': {}
 }
-
-data_opts = tf.data.Options()
-data_opts.experimental_distribute.auto_shard_policy = tf.data.experimental.AutoShardPolicy.DATA
 
 def main(config):
     # Gather all hyperparams
@@ -80,55 +79,36 @@ def main(config):
     head=config.get('head')
     label_smooth=config.get('label_smooth')
     loss_fn = config.get('loss')
-    filter_warn=config.get('filter_warnings')
     input_variables=config.get('input_variables')
     exp_name=config.get('exp_name')
     exp_dir=config.get('exp_dir')
     train_years=config.get('train_years')
     val_years=config.get('val_years')
+    dataloader=config.get('dataloader')
+    dataloader_kwargs = config.get('dataloader_kwargs')
 
+    logging.info(f"Using {keras.config.backend()} backend")
+    logging.info(f'Using {dataloader} dataloader')
+    logging.info('Running with config:')
+    logging.info(config)
 
-    print('Running with config:')
-    print(config)
-    
-    ## Set up data loaders
     weights={'wN':wN,'w0':w0,'w1':w1,'w2':w2,'wW':wW}
-    ds_train = make_ds(DATA_ROOT,
-                       'train',
-                       train_years,
-                       batch_size=batch_size,
-                       weights=weights,
-                       filter_warnings=filter_warn,
-                       include_az=False,
-                       from_tfds=from_tfds)
-
-    ds_val = make_ds(DATA_ROOT,
-                     'train',
-                     val_years,
-                     batch_size=batch_size,
-                     weights=weights,
-                     filter_warnings=filter_warn,
-                     include_az=False,
-                     from_tfds=from_tfds)
-
-    ds_train=ds_train.with_options(data_opts)
-    ds_val=ds_val.with_options(data_opts)
-
-    ## Set up model
-    for x,y,w in ds_train:
-        shp=get_shape(x)
-        c_shp=x['coordinates'].shape
-        break
-    in_shapes = (None,None,shp[-1])
-    c_shapes = (None,None,c_shp[-1])
     
+    # Create data laoders
+    dataloader_kwargs = {'select_keys':input_variables+['range_folded_mask','coordinates']}
+    ds_train = get_dataloader(dataloader, DATA_ROOT, train_years, "train", batch_size, weights, **dataloader_kwargs)
+    ds_val = get_dataloader(dataloader, DATA_ROOT, val_years, "train", batch_size, weights, **dataloader_kwargs)    
+    
+    in_shapes = (None,None,2)
+    c_shapes = (None,None,2)
     nn = build_model(shape=in_shapes,
                      c_shape=c_shapes,
                      start_filters=start_filters,
                      l2_reg=l2_reg,
                      input_variables=input_variables,
                      head=head)
-
+    
+    # model setup
     lr=keras.optimizers.schedules.ExponentialDecay(
                 learning_rate, decay_steps, decay_rate, staircase=False, name="exp_decay")
     
@@ -147,8 +127,8 @@ def main(config):
     opt  = keras.optimizers.Adam(learning_rate=lr)
 
     # Compute various metrics while training
-    metrics = [tfm.AUC(from_logits,name='AUC'),
-                tfm.AUC(from_logits,curve='PR',name='AUCPR'),
+    metrics = [keras.metrics.AUC(from_logits=from_logits,name='AUC',num_thresholds=2000),
+                keras.metrics.AUC(from_logits=from_logits,curve='PR',name='AUCPR',num_thresholds=2000), 
                 tfm.BinaryAccuracy(from_logits,name='BinaryAccuracy'), 
                 tfm.TruePositives(from_logits,name='TruePositives'),
                 tfm.FalsePositives(from_logits,name='FalsePositives'), 
@@ -165,6 +145,7 @@ def main(config):
     
     ## Setup experiment directory and model callbacks
     expdir = make_exp_dir(exp_dir=exp_dir,prefix=exp_name)
+    logging.info('expdir='+expdir)
 
     # Copy the properties that were used
     with open(os.path.join(expdir,'data.json'),'w') as f:
@@ -181,13 +162,15 @@ def main(config):
     tboard_dir, checkpoints_dir=make_callback_dirs(expdir)
     checkpoint_name=os.path.join(checkpoints_dir, 'tornadoDetector'+'_{epoch:03d}.keras' )
     
-    callbacks=[]
-    callbacks += [
+    callbacks = [
         keras.callbacks.ModelCheckpoint(checkpoint_name,monitor='val_loss',save_best_only=False),
         keras.callbacks.CSVLogger(os.path.join(expdir,'history.csv')),
-        keras.callbacks.TensorBoard(log_dir=tboard_dir,write_graph=False),#,profile_batch=(5,15)),
         keras.callbacks.TerminateOnNaN(),
     ]
+
+    # TensorBoard callback requires tensorflow backend
+    if keras.config.backend() == "tensorflow":
+        callbacks.append(keras.callbacks.TensorBoard(log_dir=tboard_dir,write_graph=False))#,profile_batch=(5,15)),
 
     ## FIT
     history=nn.fit(ds_train,
@@ -207,7 +190,6 @@ def main(config):
 
 
 if __name__=='__main__':
-    print(f"Using {keras.config.backend()} backend")
     config=DEFAULT_CONFIG
     # Load param file if given
     if len(sys.argv)>1:
