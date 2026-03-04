@@ -22,11 +22,13 @@ import xarray as xr
 from tornet.data.constants import ALL_VARIABLES
 import os
 import pandas as pd
+import xml.etree.ElementTree as ET
 
-def read_file(f: str, 
+def read_file(f: str,
               variables: List['str']=ALL_VARIABLES,
               n_frames:int=1,
-              tilt_last:bool=True) -> Dict[str,np.ndarray]:
+              tilt_last:bool=True,
+              use_madis_data:bool=False) -> Dict[str,np.ndarray]:
     """
     Extracts data from a single netcdf file
 
@@ -45,11 +47,10 @@ def read_file(f: str,
     
     data = {}
     with xr.open_dataset(f) as ds:
-        
+
         # Load each radar variable
         for v in variables:
             data[v]=ds[v].values[-n_frames:,:,:,:]
-        
         # Various numeric metadata
         data['range_folded_mask'] = ds['range_folded_mask'].values[-n_frames:,:,:,:].astype(np.float32) # only two channels for vel,width
         data['label'] = ds['frame_labels'].values[-n_frames:] # 1 if tornado, 0 otherwise
@@ -61,7 +62,32 @@ def read_file(f: str,
         data['rng_lower']=np.array(ds['range_limits'].values[0:1])
         data['rng_upper']=np.array(ds['range_limits'].values[1:])
         data['time']=(ds.time.values[-n_frames:].astype(np.int64)/1e9).astype(np.int64)
-        
+
+        if use_madis_data:
+            madis_vars = ['madis_atmospheric_pressure', 'madis_wind_direction', 'madis_wind_speed', 'madis_wind_gust_speed', 'madis_relative_humidity', 'madis_temperature', 'madis_temperature_dew_point']
+            storm_id = get_id_from_storm_event_url(ds.attrs['storm_event_url'])
+            madis_file = f"/Users/evanshabsove/Documents/georgian/summer_2025/AIDI-1004/assignment-2/tornet/tornet_data/madis_data/madis_data_{storm_id}_{ds['time'].values[0]}.xml"
+            if os.path.exists(madis_file):
+                madis_features = extract_madis_features(madis_file)
+
+                # Collect all MADIS features into a single array in the order of madis_vars
+                madis_values = []
+                for v in madis_vars:
+                    if v in madis_features:
+                        madis_values.append(madis_features[v])
+                    else:
+                        return None  # If any MADIS feature is missing, return None
+
+                if np.any(np.array(madis_values) == 0.0):
+                    return None
+
+                data['madis'] = np.array(madis_values, dtype=np.float32)
+                # If any MADIS value is 0.0, treat as missing and return None
+            else:
+                # print(f"MADIS data file {madis_file} does not exist. Filling MADIS features with NaN.")
+                # data['madis'] = np.full(len(madis_vars), np.nan, dtype=np.float32)
+                return None  # If MADIS data is not available, return None
+
         # Store start/end times for tornado (Added in v1.1)
         if ds.attrs['ef_number']>=0 and ('tornado_start_time' in ds.attrs):
             start_time=datetime.datetime.strptime(ds.attrs['tornado_start_time'],'%Y-%m-%d %H:%M:%S')
@@ -84,6 +110,49 @@ def read_file(f: str,
             data[v]=np.transpose(data[v],(0,3,1,2))
         
     return data
+
+def get_id_from_storm_event_url(storm_event_url):
+    """
+    Extracts the 'id' parameter value from the storm_event_url.
+    Returns the id as a string, or None if not found.
+    """
+    import urllib.parse
+    if storm_event_url:
+        parsed = urllib.parse.urlparse(storm_event_url)
+        query = urllib.parse.parse_qs(parsed.query)
+        return query.get('id', [None])[0]
+    return None
+
+def extract_madis_features(xml_file):
+    """
+    Extracts relevant MADIS features from the XML file.
+    Returns a dictionary of features for all known variables.
+    """
+    features = {}
+    var_map = {
+        'V-ALTSE': 'madis_atmospheric_pressure',
+        'V-DD': 'madis_wind_direction',
+        'V-FF': 'madis_wind_speed',
+        'V-FFGUST': 'madis_wind_gust_speed',
+        'V-RH': 'madis_relative_humidity',
+        'V-T': 'madis_temperature',
+        'V-TD': 'madis_temperature_dew_point',
+    }
+    try:
+        import xml.etree.ElementTree as ET
+        tree = ET.parse(xml_file)
+        root = tree.getroot()
+        for record in root.findall('.//record'):
+            var = record.attrib.get('var')
+            if var in var_map:
+                try:
+                    features[var_map[var]] = float(record.attrib.get('data_value'))
+                except (TypeError, ValueError):
+                    features[var_map[var]] = None
+    except Exception as e:
+        print(f"Error parsing {xml_file}: {e}")
+    return features
+
 
 def query_catalog(data_root: str, 
                   data_type: str, 
@@ -111,7 +180,7 @@ def query_catalog(data_root: str,
     catalog = catalog.sample(frac=1, random_state=random_state) # shuffle file list
     file_list = [os.path.join(data_root,f) for f in catalog.filename]
 
-    return file_list
+    return file_list[0:100]
 
 class TornadoDataLoader:
     """

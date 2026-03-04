@@ -22,7 +22,8 @@ ALL_VARIABLES=['DBZ',
                'KDP',
                'RHOHV',
                'ZDR',
-               'WIDTH']
+               'WIDTH'
+            ]
 
 # Provides a typical min-max range for each variable (but not exact)
 # Used for normalizing in a NN
@@ -32,8 +33,28 @@ CHANNEL_MIN_MAX = {
     'KDP': [-2.,5.],
     'RHOHV': [0.2, 1.04],
     'ZDR': [-1.,8.],
-    'WIDTH':[0.,9.]
+    'WIDTH':[0.,9.],
 }
+
+MAIDS_VARIABLES = [
+    'madis_atmospheric_pressure',
+    'madis_wind_direction',
+    'madis_wind_speed',
+    'madis_wind_gust_speed',
+    'madis_relative_humidity',
+    'madis_temperature',
+    'madis_temperature_dew_point'
+]
+
+MADIS_MIN_MAX = [
+    [90000., 110000.],   # madis_atmospheric_pressure
+    [0., 360.],          # madis_wind_direction
+    [0., 50.],           # madis_wind_speed
+    [0., 50.],           # madis_wind_gust_speed
+    [0., 100.],          # madis_relative_humidity
+    [233.15, 323.15],         # madis_temperature
+    [233.15, 323.15]         # madis_temperature_dew_point
+]
 
 
 
