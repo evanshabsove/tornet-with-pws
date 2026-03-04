@@ -55,6 +55,7 @@ class KerasDataLoader(keras.utils.PyDataset):
         workers: int = 1,
         use_multiprocessing: bool = False,
         max_queue_size: int = 10,
+        use_madis_data: bool = False,
     ):
         """
         data_root - location of TorNet
@@ -73,13 +74,13 @@ class KerasDataLoader(keras.utils.PyDataset):
         https://keras.io/api/utils/python_utils/#pydataset-class
 
         When workers==0, workers becomes os.cpu_count().
+        use_madis_data - if True, loads additional features from MADIS data
 
         """
 
         if workers == 0:
             workers = os.cpu_count()
 
-        super().__init__(workers, use_multiprocessing, max_queue_size)
         self.data_root = data_root
         self.data_type = data_type
         self.years = years
@@ -91,6 +92,8 @@ class KerasDataLoader(keras.utils.PyDataset):
 
         self.tilt_last = tilt_last
         self.file_list = query_catalog(data_root, data_type, years, random_state, catalog=catalog)
+        self.use_madis_data = use_madis_data
+        super().__init__(workers, use_multiprocessing, max_queue_size)
 
     def __len__(self) -> int:
         "Returns number of batches"
@@ -105,8 +108,10 @@ class KerasDataLoader(keras.utils.PyDataset):
 
         element_list = []
         for f in files_batch:
-            element_list.append(read_file(f, variables=ALL_VARIABLES, n_frames=1, tilt_last=self.tilt_last))
+            element_list.append(read_file(f, variables=ALL_VARIABLES, n_frames=1, tilt_last=self.tilt_last, use_madis_data=self.use_madis_data))
 
+        # Remove None elements (in case of missing data)
+        element_list = [el for el in element_list if el is not None]
         # Transforms
         for element in element_list:
             pp.add_coordinates(element, include_az=self.include_az, backend=np, tilt_last=self.tilt_last)
@@ -118,8 +123,10 @@ class KerasDataLoader(keras.utils.PyDataset):
         # Concatenate into batch
         batch = {}
         for key in element_list[0].keys():
-            batch[key] = np.concatenate([el[key] for el in element_list])
-        
+            if key == 'madis':
+                batch[key] = np.stack([el[key] for el in element_list], axis=0)  # shape: (batch_size, 7)
+            else:
+                batch[key] = np.concatenate([el[key] for el in element_list])
         # split into x,y
         x, y = pp.split_x_y(batch)
 

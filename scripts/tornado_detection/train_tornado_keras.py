@@ -39,8 +39,10 @@ logging.info('TORNET_ROOT='+DATA_ROOT)
 DEFAULT_CONFIG={
     'epochs':10,
     'input_variables':ALL_VARIABLES,
-    'train_years':list(range(2013,2021)),
-    'val_years':list(range(2021,2023)),
+    # 'train_years':list(range(2013,2021)),
+    # 'val_years':list(range(2021,2023)),
+    'train_years':list(range(2013)),
+    'val_years':list(range(2013)),
     'batch_size':128,
     'model':'vgg',
     'start_filters':48,
@@ -97,7 +99,7 @@ def main(config):
     # Create data laoders
     dataloader_kwargs.update({'select_keys':input_variables+['range_folded_mask','coordinates']})
     ds_train = get_dataloader(dataloader, DATA_ROOT, train_years, "train", batch_size, weights, **dataloader_kwargs)
-    ds_val = get_dataloader(dataloader, DATA_ROOT, val_years, "train", batch_size, weights, **dataloader_kwargs)    
+    ds_val = get_dataloader(dataloader, DATA_ROOT, val_years, "train", batch_size, weights, **dataloader_kwargs)
     
     x, _, _ = next(iter(ds_train))
     in_shapes = (None, None, get_shape(x)[-1])
