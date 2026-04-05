@@ -22,7 +22,39 @@ import xarray as xr
 from tornet.data.constants import ALL_VARIABLES
 import os
 import pandas as pd
-import xml.etree.ElementTree as ET
+
+# Global MADIS data cache - loaded once at module level for efficiency
+_MADIS_DATA_CACHE = None
+
+def _load_madis_data(data_root):
+    """
+    Load MADIS features from CSV file once and cache in memory.
+    Returns DataFrame indexed by (storm_id, timestamp) for fast lookup.
+    """
+    global _MADIS_DATA_CACHE
+    
+    if _MADIS_DATA_CACHE is not None:
+        return _MADIS_DATA_CACHE
+    
+    csv_path = os.path.join(data_root, 'madis_features_clean.csv')
+    
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"MADIS CSV file not found at {csv_path}")
+    
+    # Load CSV
+    df = pd.read_csv(csv_path)
+    
+    # Convert timestamp to string format matching netCDF time format
+    df['timestamp'] = pd.to_datetime(df['timestamp']).astype(str)
+    
+    # Set multi-index for fast lookup by (storm_id, timestamp)
+    df = df.set_index(['storm_id', 'timestamp'])
+    
+    # Sort index to avoid performance warnings
+    df = df.sort_index()
+    
+    _MADIS_DATA_CACHE = df
+    return df
 
 def read_file(f: str,
               variables: List['str']=ALL_VARIABLES,
@@ -64,29 +96,67 @@ def read_file(f: str,
         data['time']=(ds.time.values[-n_frames:].astype(np.int64)/1e9).astype(np.int64)
 
         if use_madis_data:
-            madis_vars = ['madis_atmospheric_pressure', 'madis_wind_direction', 'madis_wind_speed', 'madis_wind_gust_speed', 'madis_relative_humidity', 'madis_temperature', 'madis_temperature_dew_point']
+            # Get storm ID and timestamp
             storm_id = get_id_from_storm_event_url(ds.attrs['storm_event_url'])
-            madis_file = f"/Users/evanshabsove/Documents/georgian/summer_2025/AIDI-1004/assignment-2/tornet/tornet_data/madis_data/madis_data_{storm_id}_{ds['time'].values[0]}.xml"
-            if os.path.exists(madis_file):
-                madis_features = extract_madis_features(madis_file)
-
-                # Collect all MADIS features into a single array in the order of madis_vars
-                madis_values = []
-                for v in madis_vars:
-                    if v in madis_features:
-                        madis_values.append(madis_features[v])
-                    else:
-                        return None  # If any MADIS feature is missing, return None
-
-                if np.any(np.array(madis_values) == 0.0):
-                    return None
-
+            # Convert numpy datetime to pandas datetime
+            timestamp_np = ds['time'].values[0]
+            timestamp_dt = pd.to_datetime(timestamp_np)
+            
+            # Extract data_root from file path (goes up 3 levels from train/test/year/file.nc)
+            data_root = os.path.dirname(os.path.dirname(os.path.dirname(f)))
+            
+            try:
+                # Load MADIS data (cached after first call)
+                madis_df = _load_madis_data(data_root)
+                
+                # Get all entries for this storm_id
+                storm_id_int = int(storm_id)
+                storm_data = madis_df.loc[storm_id_int]
+                
+                if storm_data.empty:
+                    return None  # No MADIS data for this storm
+                
+               # Group by timestamp and average (handles multiple stations at same time)
+                storm_data_agg = storm_data.groupby(level=0).mean(numeric_only=True)
+                
+                # Convert timestamps to datetime for comparison
+                storm_timestamps = pd.to_datetime(storm_data_agg.index)
+                
+                # Find the temporally closest MADIS observation (within 10 minutes)
+                time_diffs = abs(storm_timestamps - timestamp_dt)
+                min_diff_idx = time_diffs.argmin()
+                min_diff_seconds = time_diffs[min_diff_idx].total_seconds()
+                
+                # Only use MADIS data if within 10 minutes
+                if min_diff_seconds > 600:  # 10 minutes = 600 seconds
+                    return None  # No nearby MADIS observation
+                
+                # Get the row at the best matching timestamp
+                best_timestamp = storm_timestamps[min_diff_idx]
+                madis_row = storm_data_agg.loc[best_timestamp.strftime('%Y-%m-%d %H:%M:%S')]
+                
+                # Extract the 7 MADIS features in the correct order
+                # CSV columns: pressure, wind_direction, wind_speed, wind_gust, relative_humidity, temperature, dewpoint
+                # Model expects: pressure, wind_direction, wind_speed, wind_gust, relative_humidity, temperature, dewpoint
+                madis_values = [
+                    float(madis_row['pressure']),        # madis_atmospheric_pressure
+                    float(madis_row['wind_direction']),  # madis_wind_direction
+                    float(madis_row['wind_speed']),      # madis_wind_speed
+                    float(madis_row['wind_gust']),       # madis_wind_gust_speed
+                    float(madis_row['relative_humidity']), # madis_relative_humidity
+                    float(madis_row['temperature']),     # madis_temperature
+                    float(madis_row['dewpoint'])         # madis_temperature_dew_point
+                ]
+                
+                # Check for missing values (NaN only - zeros are valid)
+                if any(pd.isna(v) for v in madis_values):
+                    return None  # Skip samples with missing MADIS data
+                
                 data['madis'] = np.array(madis_values, dtype=np.float32)
-                # If any MADIS value is 0.0, treat as missing and return None
-            else:
-                # print(f"MADIS data file {madis_file} does not exist. Filling MADIS features with NaN.")
-                # data['madis'] = np.full(len(madis_vars), np.nan, dtype=np.float32)
-                return None  # If MADIS data is not available, return None
+                
+            except (KeyError, ValueError):
+                # Storm ID or timestamp not found in MADIS data
+                return None  # Skip samples without MADIS data
 
         # Store start/end times for tornado (Added in v1.1)
         if ds.attrs['ef_number']>=0 and ('tornado_start_time' in ds.attrs):
@@ -122,36 +192,6 @@ def get_id_from_storm_event_url(storm_event_url):
         query = urllib.parse.parse_qs(parsed.query)
         return query.get('id', [None])[0]
     return None
-
-def extract_madis_features(xml_file):
-    """
-    Extracts relevant MADIS features from the XML file.
-    Returns a dictionary of features for all known variables.
-    """
-    features = {}
-    var_map = {
-        'V-ALTSE': 'madis_atmospheric_pressure',
-        'V-DD': 'madis_wind_direction',
-        'V-FF': 'madis_wind_speed',
-        'V-FFGUST': 'madis_wind_gust_speed',
-        'V-RH': 'madis_relative_humidity',
-        'V-T': 'madis_temperature',
-        'V-TD': 'madis_temperature_dew_point',
-    }
-    try:
-        import xml.etree.ElementTree as ET
-        tree = ET.parse(xml_file)
-        root = tree.getroot()
-        for record in root.findall('.//record'):
-            var = record.attrib.get('var')
-            if var in var_map:
-                try:
-                    features[var_map[var]] = float(record.attrib.get('data_value'))
-                except (TypeError, ValueError):
-                    features[var_map[var]] = None
-    except Exception as e:
-        print(f"Error parsing {xml_file}: {e}")
-    return features
 
 
 def query_catalog(data_root: str, 

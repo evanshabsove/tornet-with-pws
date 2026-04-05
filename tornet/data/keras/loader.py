@@ -112,6 +112,25 @@ class KerasDataLoader(keras.utils.PyDataset):
 
         # Remove None elements (in case of missing data)
         element_list = [el for el in element_list if el is not None]
+        
+        # If all samples were filtered out, skip to the next batch
+        if len(element_list) == 0:
+            # Try to get more samples from the next batch range
+            next_low = high
+            next_high = min(next_low + self.batch_size, len(self.file_list))
+            if next_low < len(self.file_list):
+                files_batch = self.file_list[next_low:next_high]
+                for f in files_batch:
+                    el = read_file(f, variables=ALL_VARIABLES, n_frames=1, tilt_last=self.tilt_last, use_madis_data=self.use_madis_data)
+                    if el is not None:
+                        element_list.append(el)
+                        if len(element_list) >= self.batch_size:
+                            break
+            
+            # If still no valid samples, raise an error
+            if len(element_list) == 0:
+                raise ValueError(f"Batch {idx}: All samples filtered out due to missing MADIS data. Consider using more training years or disabling MADIS filtering.")
+        
         # Transforms
         for element in element_list:
             pp.add_coordinates(element, include_az=self.include_az, backend=np, tilt_last=self.tilt_last)
