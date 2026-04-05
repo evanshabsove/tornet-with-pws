@@ -1,5 +1,21 @@
 {
   "chat.tools.terminal.autoApprove": {
-    "git remote": true
+    "git remote": true,
+    "/^cd /Users/evanshabsove/Documents/tornado_reserch_paper/tornet && python3 -c \"\nimport os\nos\\.environ\\['TORNET_ROOT'\\] = '/Users/evanshabsove/Documents/tornado_reserch_paper/tornet/tornet_data'\nos\\.environ\\['KERAS_BACKEND'\\] = 'tensorflow'\n\nfrom tornet\\.data\\.loader import read_file\nimport glob\n\n# Find a sample file\ntest_files = glob\\.glob\\('tornet_data/train/2013/\\*\\.nc'\\)\\[:1\\]\nif test_files:\n    print\\(f'Testing with file: \\{test_files\\[0\\]\\}'\\)\n    # Test without MADIS\n    data_no_madis = read_file\\(test_files\\[0\\], use_madis_data=False\\)\n    print\\(f'Without MADIS: \\{\\\\\"madis\\\\\" in data_no_madis if data_no_madis else \\\\\"File read failed\\\\\"\\}'\\)\n    \n    # Test with MADIS\n    data_with_madis = read_file\\(test_files\\[0\\], use_madis_data=True\\)\n    if data_with_madis and 'madis' in data_with_madis:\n        print\\(f'With MADIS: Shape=\\{data_with_madis\\[\\\\\"madis\\\\\"\\]\\.shape\\}, Values=\\{data_with_madis\\[\\\\\"madis\\\\\"\\]\\}'\\)\n    else:\n        print\\('With MADIS: No MADIS data found \\(this is OK if sample not in CSV\\)'\\)\nelse:\n    print\\('No test files found'\\)\n\"$/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^cd /Users/evanshabsove/Documents/tornado_reserch_paper/tornet && python3 -c \"\nimport os\nos\\.environ\\['TORNET_ROOT'\\] = '/Users/evanshabsove/Documents/tornado_reserch_paper/tornet/tornet_data'\nos\\.environ\\['KERAS_BACKEND'\\] = 'tensorflow'\n\nfrom tornet\\.data\\.loader import read_file\n\ntest_file = 'tornet_data/train/2013/NUL_130912_013337_KGYX_478457s_C6\\.nc'\nprint\\(f'Testing MADIS CSV loading with: \\{test_file\\}'\\)\nprint\\(\\)\n\n# Test with MADIS\ndata = read_file\\(test_file, use_madis_data=True\\)\nif data and 'madis' in data:\n    print\\('✓ SUCCESS: MADIS data loaded from CSV!'\\)\n    print\\(f'  Shape: \\{data\\[\\\\\"madis\\\\\"\\]\\.shape\\}'\\)\n    print\\(f'  Data type: \\{data\\[\\\\\"madis\\\\\"\\]\\.dtype\\}'\\)\n    print\\(f'  Values: \\{data\\[\\\\\"madis\\\\\"\\]\\}'\\)\n    print\\(\\)\n    print\\('  Feature breakdown:'\\)\n    features = \\['pressure \\(Pa\\)', 'wind_direction \\(deg\\)', 'wind_speed \\(m/s\\)', \n                'wind_gust \\(m/s\\)', 'relative_humidity \\(%\\)', 'temperature \\(K\\)', 'dewpoint \\(K\\)'\\]\n    for i, \\(feat, val\\) in enumerate\\(zip\\(features, data\\['madis'\\]\\)\\):\n        print\\(f'    \\[\\{i\\}\\] \\{feat:30s\\} = \\{val:\\.2f\\}'\\)\nelse:\n    print\\('✗ FAILED: No MADIS data found'\\)\n    if data is None:\n        print\\('  Sample was filtered out - checking why\\.\\.\\.'\\)\n\"$/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^python test_madis_csv\\.py$/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^python3 test_madis_csv\\.py 2>&1$/": {
+      "approve": true,
+      "matchCommandLine": true
+    }
   }
 }

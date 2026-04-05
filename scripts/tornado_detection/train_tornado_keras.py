@@ -61,7 +61,8 @@ DEFAULT_CONFIG={
     'exp_name':'tornet_baseline',
     'exp_dir':EXP_DIR,
     'dataloader':"keras",
-    'dataloader_kwargs': {}
+    'dataloader_kwargs': {},
+    'use_madis_data': False
 }
 
 def main(config):
@@ -88,6 +89,7 @@ def main(config):
     val_years=config.get('val_years')
     dataloader=config.get('dataloader')
     dataloader_kwargs = config.get('dataloader_kwargs')
+    use_madis_data = config.get('use_madis_data')
 
     logging.info(f"Using {keras.config.backend()} backend")
     logging.info(f'Using {dataloader} dataloader')
@@ -97,20 +99,30 @@ def main(config):
     weights={'wN':wN,'w0':w0,'w1':w1,'w2':w2,'wW':wW}
     
     # Create data laoders
-    dataloader_kwargs.update({'select_keys':input_variables+['range_folded_mask','coordinates']})
+    select_keys = input_variables + ['range_folded_mask', 'coordinates']
+    if use_madis_data:
+        select_keys.append('madis')
+        dataloader_kwargs.update({'use_madis_data': True})
+    dataloader_kwargs.update({'select_keys': select_keys})
     ds_train = get_dataloader(dataloader, DATA_ROOT, train_years, "train", batch_size, weights, **dataloader_kwargs)
     ds_val = get_dataloader(dataloader, DATA_ROOT, val_years, "train", batch_size, weights, **dataloader_kwargs)
     
     x, _, _ = next(iter(ds_train))
-    in_shapes = (None, None, get_shape(x)[-1])
-    c_shapes = (None, None, x["coordinates"].shape[-1])
+    # Use concrete shapes for MLP head (needed for proper shape inference with concatenation)
+    if head == 'mlp':
+        in_shapes = tuple(x[input_variables[0]].shape[1:])  # (height, width, tilts)
+        c_shapes = tuple(x["coordinates"].shape[1:])
+    else:
+        in_shapes = (None, None, get_shape(x)[-1])
+        c_shapes = (None, None, x["coordinates"].shape[-1])
     
     nn = build_model(shape=in_shapes,
                      c_shape=c_shapes,
                      start_filters=start_filters,
                      l2_reg=l2_reg,
                      input_variables=input_variables,
-                     head=head)
+                     head=head,
+                     use_madis=use_madis_data)
     
     # model setup
     lr=keras.optimizers.schedules.ExponentialDecay(
