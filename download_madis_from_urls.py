@@ -243,7 +243,8 @@ Examples:
     print("Loading URL list...")
     try:
         url_df = pd.read_csv(url_file)
-        required_cols = ['storm_id', 'start_time', 'url', 'output_filename']
+        # Required columns (only those actually used by the download function)
+        required_cols = ['storm_id', 'url', 'output_filename']
         if not all(col in url_df.columns for col in required_cols):
             print(f"Error: URL file must contain columns: {required_cols}")
             print(f"Found columns: {list(url_df.columns)}")
