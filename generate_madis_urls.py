@@ -6,10 +6,16 @@ This script reads the TorNet catalog and generates a CSV file containing
 all the MADIS URLs that need to be downloaded. This file can be transferred
 to another computer for downloading via VPN.
 
+Supports multiple temporal windows:
+- T0: At-storm time (during radar scan)
+- T-2h: Pre-storm (2 hours before radar scan) - atmospheric setup
+- T-24h: Control (24 hours before) - baseline/normal conditions
+
 Usage:
     python generate_madis_urls.py
     python generate_madis_urls.py --years 2013 2014
     python generate_madis_urls.py --output madis_urls_2013_2014.csv
+    python generate_madis_urls.py --time-windows T0 Tminus2h Tminus24h
 """
 
 import os
@@ -19,6 +25,7 @@ import math
 import urllib.parse
 from pathlib import Path
 from typing import List, Tuple, Optional
+from datetime import timedelta
 
 import pandas as pd
 import numpy as np
@@ -71,6 +78,43 @@ def convert_to_timestamp(time) -> str:
     return time.strftime('%Y%m%d_%H%M')
 
 
+def get_time_offset(base_time, window: str):
+    """
+    Apply time offset based on temporal window.
+    
+    Args:
+        base_time: Base datetime (storm time)
+        window: Time window identifier ('T0', 'Tminus2h', or 'Tminus24h')
+    
+    Returns:
+        Adjusted datetime
+    """
+    # Convert to pandas Timestamp for easier manipulation
+    if isinstance(base_time, np.datetime64):
+        base_time = pd.to_datetime(str(base_time))
+    elif not isinstance(base_time, pd.Timestamp):
+        base_time = pd.Timestamp(base_time)
+    
+    if window == 'T0':
+        return base_time
+    elif window == 'Tminus2h':
+        return base_time - timedelta(hours=2)
+    elif window == 'Tminus24h':
+        return base_time - timedelta(hours=24)
+    else:
+        raise ValueError(f"Unknown time window: {window}")
+
+
+def get_window_description(window: str) -> str:
+    """Get human-readable description of time window."""
+    descriptions = {
+        'T0': 'At-storm (during radar scan)',
+        'Tminus2h': 'Pre-storm (2 hours before)',
+        'Tminus24h': 'Control (24 hours before)'
+    }
+    return descriptions.get(window, window)
+
+
 def get_id_from_storm_event_url(storm_event_url: str) -> Optional[str]:
     """
     Extracts the 'id' parameter value from the storm_event_url.
@@ -113,7 +157,8 @@ def generate_url_list(catalog: pd.DataFrame, data_root: Path,
                       years: Optional[List[int]] = None,
                       distance_km: float = 20,
                       skip_existing: bool = True,
-                      existing_dir: Optional[Path] = None) -> pd.DataFrame:
+                      existing_dir: Optional[Path] = None,
+                      time_windows: List[str] = ['T0']) -> pd.DataFrame:
     """
     Generate list of MADIS URLs from TorNet catalog.
     
@@ -124,15 +169,17 @@ def generate_url_list(catalog: pd.DataFrame, data_root: Path,
         distance_km: Bounding box size in kilometers
         skip_existing: Whether to skip URLs for files that already exist
         existing_dir: Directory to check for existing files
+        time_windows: List of time windows to generate ('T0', 'Tminus2h', 'Tminus24h')
     
     Returns:
-        DataFrame with columns: storm_id, start_time, url, output_filename
+        DataFrame with columns: storm_id, start_time, time_window, url, output_filename
     """
     # Filter by years if specified
     if years:
         catalog = catalog[catalog.start_time.dt.year.isin(years)].copy()
     
     print(f"Generating URLs from {len(catalog)} catalog entries...")
+    print(f"Time windows: {', '.join([get_window_description(w) for w in time_windows])}")
     
     url_data = []
     failed_files = []
@@ -166,34 +213,43 @@ def generate_url_list(catalog: pd.DataFrame, data_root: Path,
                 ds.close()
                 continue
             
-            # Create output filename
-            start_time = row['start_time']
-            output_filename = f"madis_data_{storm_id}_{start_time}.xml"
+            # Get base time
+            base_time = row['start_time']
             
-            # Check if file already exists
-            if skip_existing and existing_dir:
-                output_file = existing_dir / output_filename
-                if output_file.exists():
-                    skipped_existing += 1
-                    ds.close()
-                    continue
-            
-            # Get bounding box
-            latll, lonll, latur, lonur = get_bounding_box(site_lat, site_lon, distance_km)
-            
-            # Convert time to MADIS format
-            timestamp = convert_to_timestamp(start_time)
-            
-            # Construct URL
-            url = set_madis_url(latll, lonll, latur, lonur, timestamp)
-            
-            # Add to list
-            url_data.append({
-                'storm_id': storm_id,
-                'start_time': str(start_time),
-                'url': url,
-                'output_filename': output_filename
-            })
+            # Generate URLs for each time window
+            for window in time_windows:
+                # Apply time offset
+                adjusted_time = get_time_offset(base_time, window)
+                
+                # Create output filename with time window suffix
+                output_filename = f"madis_data_{storm_id}_{base_time}_{window}.xml"
+                
+                # Check if file already exists
+                if skip_existing and existing_dir:
+                    output_file = existing_dir / output_filename
+                    if output_file.exists():
+                        skipped_existing += 1
+                        continue
+                
+                # Get bounding box
+                latll, lonll, latur, lonur = get_bounding_box(site_lat, site_lon, distance_km)
+                
+                # Convert time to MADIS format
+                timestamp = convert_to_timestamp(adjusted_time)
+                
+                # Construct URL
+                url = set_madis_url(latll, lonll, latur, lonur, timestamp)
+                
+                # Add to list
+                url_data.append({
+                    'storm_id': storm_id,
+                    'base_time': str(base_time),
+                    'time_window': window,
+                    'window_description': get_window_description(window),
+                    'adjusted_time': str(adjusted_time),
+                    'url': url,
+                    'output_filename': output_filename
+                })
             
             ds.close()
             
@@ -206,6 +262,8 @@ def generate_url_list(catalog: pd.DataFrame, data_root: Path,
     
     print(f"\n{'='*60}")
     print(f"Successfully generated {len(url_df)} URLs")
+    print(f"  - {len(url_df) // len(time_windows)} storms")
+    print(f"  - {len(time_windows)} time windows per storm")
     if skip_existing and existing_dir:
         print(f"Skipped {skipped_existing} files that already exist")
     if failed_files:
@@ -221,21 +279,29 @@ def generate_url_list(catalog: pd.DataFrame, data_root: Path,
 def main():
     """Main entry point for the script."""
     parser = argparse.ArgumentParser(
-        description="Generate MADIS download URLs from TorNet catalog",
+        description="Generate MADIS download URLs from TorNet catalog with multiple temporal windows",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Generate URLs for all years
+  # Generate URLs for all years, all time windows
   python generate_madis_urls.py
   
   # Generate URLs for specific years
   python generate_madis_urls.py --years 2013 2014 2015
+  
+  # Generate only pre-storm and control windows (not at-storm)
+  python generate_madis_urls.py --time-windows Tminus2h Tminus24h
   
   # Specify custom output file
   python generate_madis_urls.py --years 2020 2021 --output madis_urls_2020_2021.csv
   
   # Include URLs for files that already exist
   python generate_madis_urls.py --no-skip-existing
+
+Time Windows:
+  T0        - At-storm time (during radar scan) - in-storm conditions
+  Tminus2h  - Pre-storm (2 hours before) - atmospheric setup
+  Tminus24h - Control (24 hours before) - baseline/normal conditions
         """
     )
     
@@ -259,6 +325,15 @@ Examples:
         nargs='+',
         default=None,
         help='Years to process (default: all years in catalog)'
+    )
+    
+    parser.add_argument(
+        '--time-windows',
+        type=str,
+        nargs='+',
+        default=['T0', 'Tminus2h', 'Tminus24h'],
+        choices=['T0', 'Tminus2h', 'Tminus24h'],
+        help='Time windows to generate URLs for (default: all three)'
     )
     
     parser.add_argument(
@@ -308,6 +383,9 @@ Examples:
     print(f"Data root:       {data_root}")
     print(f"Output file:     {args.output}")
     print(f"Years:           {args.years if args.years else 'All'}")
+    print(f"Time windows:    {args.time_windows}")
+    for window in args.time_windows:
+        print(f"  - {window}: {get_window_description(window)}")
     print(f"Bounding box:    {args.distance_km} km")
     print(f"Skip existing:   {skip_existing}")
     if skip_existing:
@@ -330,7 +408,8 @@ Examples:
         args.years,
         args.distance_km,
         skip_existing,
-        existing_dir if skip_existing else None
+        existing_dir if skip_existing else None,
+        args.time_windows
     )
     
     if len(url_df) == 0:
@@ -344,12 +423,19 @@ Examples:
     print(f"{'='*60}")
     print(f"URLs saved to: {output_path}")
     print(f"Total URLs: {len(url_df)}")
+    print(f"  - Storms: {url_df['storm_id'].nunique()}")
+    print(f"  - Time windows: {url_df['time_window'].nunique()}")
+    for window in args.time_windows:
+        count = (url_df['time_window'] == window).sum()
+        print(f"    • {window}: {count} URLs")
     print(f"File size: {output_path.stat().st_size / 1024:.1f} KB")
     print(f"{'='*60}\n")
     
     print("Next steps:")
     print(f"1. Transfer {output_path} to your personal computer")
     print(f"2. Run: python download_madis_from_urls.py {output_path.name}")
+    print(f"\nNote: Generated {len(url_df)} total URLs ({len(args.time_windows)} per storm)")
+    print(f"      This enables temporal analysis: pre-storm setup, at-storm conditions, and baseline")
     print()
 
 
