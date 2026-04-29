@@ -47,13 +47,12 @@ MAIDS_VARIABLES = [
 ]
 
 MADIS_MIN_MAX = [
-    [90000., 110000.],   # madis_atmospheric_pressure
-    [0., 360.],          # madis_wind_direction
-    [0., 50.],           # madis_wind_speed
-    [0., 50.],           # madis_wind_gust_speed
-    [0., 100.],          # madis_relative_humidity
-    [233.15, 323.15],         # madis_temperature
-    [233.15, 323.15]         # madis_temperature_dew_point
+    [97000., 105000.],   # pressure (Pa) — raw T0
+    [0., 25.],           # wind_gust (m/s) — raw T0
+    [-2500., 1000.],     # pressure_anomaly_24h (Pa) — P_T0 - P_T24h
+    [-5., 6.],           # wind_anomaly_24h (m/s) — W_T0 - W_T24h
+    [0., 28.],           # instability_proxy_T2h (K) — T_T2h - Td_T2h
+    [-7., 28.],          # instability_proxy_T0 (K) — T_T0 - Td_T0
 ]
 
 

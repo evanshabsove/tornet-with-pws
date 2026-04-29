@@ -7,3 +7,6 @@ lightning_logs/
 tornado_baseline*
 tornet_baseline*
 tornet_data
+tornado_madis_*
+tornado_no_madis_*
+latest
