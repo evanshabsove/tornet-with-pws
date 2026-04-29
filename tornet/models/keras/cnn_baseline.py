@@ -35,7 +35,7 @@ def build_model(shape:Tuple[int]=(120,240,2),
     
     # Create MADIS input if enabled (needs to be created early with other inputs)
     if use_madis:
-        madis_input = keras.Input((7,), name='madis')
+        madis_input = keras.Input((len(MADIS_MIN_MAX),), name='madis')
         inputs['madis'] = madis_input
     
     # Normalize inputs and concate along channel dim
@@ -138,20 +138,14 @@ def normalize(x,
                                          name='Normalize_%s' % name)(x)
 
 def normalize_madis(x):
-    """
-    Normalize MADIS features using known MADIS_MIN_MAX
-    Returns normalized MADIS features scaled to approximately [-1,1]
-    """
-    # MADIS_MIN_MAX is a list of [min, max] pairs for each of the 7 features
-    min_max = np.array(MADIS_MIN_MAX, dtype=np.float32)  # shape (7, 2)
-    
-    # Compute mean and variance for approximate [-1,1] scaling
-    means = (min_max[:, 0] + min_max[:, 1]) / 2  # shape (7,)
-    stds = (min_max[:, 1] - min_max[:, 0]) / 2  # shape (7,)
-    
-    # Use Lambda layer for manual normalization to avoid shape inference issues
+    """Normalize MADIS features to [-1, 1] using MADIS_MIN_MAX ranges."""
+    min_max = np.array(MADIS_MIN_MAX, dtype=np.float32)
+    means = (min_max[:, 0] + min_max[:, 1]) / 2
+    stds  = (min_max[:, 1] - min_max[:, 0]) / 2
+    n = len(MADIS_MIN_MAX)
     return keras.layers.Lambda(
         lambda inputs: (inputs - means) / stds,
+        output_shape=(n,),
         name='Normalize_madis'
     )(x)
 

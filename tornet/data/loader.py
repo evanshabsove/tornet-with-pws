@@ -110,6 +110,8 @@ def read_file(f: str,
                 madis_df = _load_madis_data(data_root)
                 
                 # Get all entries for this storm_id
+                if storm_id is None:
+                    return None
                 storm_id_int = int(storm_id)
                 storm_data = madis_df.loc[storm_id_int]
                 
@@ -122,35 +124,43 @@ def read_file(f: str,
                 # Convert timestamps to datetime for comparison
                 storm_timestamps = pd.to_datetime(storm_data_agg.index)
                 
-                # Find the temporally closest MADIS observation (within 10 minutes)
+                # Find the temporally closest MADIS observation (within 15 minutes)
                 time_diffs = abs(storm_timestamps - timestamp_dt)
                 min_diff_idx = time_diffs.argmin()
                 min_diff_seconds = time_diffs[min_diff_idx].total_seconds()
-                
-                # Only use MADIS data if within 10 minutes
-                if min_diff_seconds > 600:  # 10 minutes = 600 seconds
+
+                # Only use MADIS data if within 15 minutes
+                if min_diff_seconds > 900:  # 15 minutes = 900 seconds
                     return None  # No nearby MADIS observation
-                
+
                 # Get the row at the best matching timestamp
                 best_timestamp = storm_timestamps[min_diff_idx]
                 madis_row = storm_data_agg.loc[best_timestamp.strftime('%Y-%m-%d %H:%M:%S')]
-                
-                # Extract the 7 MADIS features in the correct order
-                # CSV columns: pressure, wind_direction, wind_speed, wind_gust, relative_humidity, temperature, dewpoint
-                # Model expects: pressure, wind_direction, wind_speed, wind_gust, relative_humidity, temperature, dewpoint
+
+                # Extract the 6 MADIS features in the correct order (must match MADIS_MIN_MAX in constants.py)
+                # Tier 2 (raw T0): pressure, wind_gust — required, reject sample if missing
+                # Tier 1 (anomaly): filled with 0.0 if not available (storms lacking all 3 time windows)
+                pressure  = madis_row.get('pressure',  np.nan) if hasattr(madis_row, 'get') else madis_row['pressure']
+                wind_gust = madis_row.get('wind_gust', np.nan) if hasattr(madis_row, 'get') else madis_row['wind_gust']
+
+                if pd.isna(pressure) or pd.isna(wind_gust):
+                    return None  # Tier-2 raw features are required
+
+                def _get(col):
+                    try:
+                        v = float(madis_row[col])
+                        return 0.0 if pd.isna(v) else v
+                    except (KeyError, TypeError):
+                        return 0.0
+
                 madis_values = [
-                    float(madis_row['pressure']),        # madis_atmospheric_pressure
-                    float(madis_row['wind_direction']),  # madis_wind_direction
-                    float(madis_row['wind_speed']),      # madis_wind_speed
-                    float(madis_row['wind_gust']),       # madis_wind_gust_speed
-                    float(madis_row['relative_humidity']), # madis_relative_humidity
-                    float(madis_row['temperature']),     # madis_temperature
-                    float(madis_row['dewpoint'])         # madis_temperature_dew_point
+                    float(pressure),
+                    float(wind_gust),
+                    _get('pressure_anomaly_24h'),
+                    _get('wind_anomaly_24h'),
+                    _get('instability_proxy_T2h'),
+                    _get('instability_proxy_T0'),
                 ]
-                
-                # Check for missing values (NaN only - zeros are valid)
-                if any(pd.isna(v) for v in madis_values):
-                    return None  # Skip samples with missing MADIS data
                 
                 data['madis'] = np.array(madis_values, dtype=np.float32)
                 
@@ -194,11 +204,12 @@ def get_id_from_storm_event_url(storm_event_url):
     return None
 
 
-def query_catalog(data_root: str, 
-                  data_type: str, 
-                  years: list[int], 
+def query_catalog(data_root: str,
+                  data_type: str,
+                  years: list[int],
                   random_state: int,
-                  catalog: pd.DataFrame=None) -> list[str]:
+                  catalog: pd.DataFrame=None,
+                  max_files: int=None) -> list[str]:
     """Obtain file names that match criteria.
     If catalog is not provided, this loads and parses the 
     default catalog.
@@ -220,7 +231,9 @@ def query_catalog(data_root: str,
     catalog = catalog.sample(frac=1, random_state=random_state) # shuffle file list
     file_list = [os.path.join(data_root,f) for f in catalog.filename]
 
-    return file_list[0:100]
+    if max_files is not None:
+        file_list = file_list[:max_files]
+    return file_list
 
 class TornadoDataLoader:
     """

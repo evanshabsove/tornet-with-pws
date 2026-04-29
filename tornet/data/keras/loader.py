@@ -52,10 +52,11 @@ class KerasDataLoader(keras.utils.PyDataset):
         random_state: int = 1234,
         select_keys: list = None,
         tilt_last: bool = True,
-        workers: int = 1,
+        workers: int = 0,
         use_multiprocessing: bool = False,
         max_queue_size: int = 10,
         use_madis_data: bool = False,
+        max_files: int = None,
     ):
         """
         data_root - location of TorNet
@@ -91,7 +92,7 @@ class KerasDataLoader(keras.utils.PyDataset):
         self.select_keys=select_keys
 
         self.tilt_last = tilt_last
-        self.file_list = query_catalog(data_root, data_type, years, random_state, catalog=catalog)
+        self.file_list = query_catalog(data_root, data_type, years, random_state, catalog=catalog, max_files=max_files)
         self.use_madis_data = use_madis_data
         super().__init__(workers, use_multiprocessing, max_queue_size)
 
@@ -143,7 +144,7 @@ class KerasDataLoader(keras.utils.PyDataset):
         batch = {}
         for key in element_list[0].keys():
             if key == 'madis':
-                batch[key] = np.stack([el[key] for el in element_list], axis=0)  # shape: (batch_size, 7)
+                batch[key] = np.stack([el[key] for el in element_list], axis=0)
             else:
                 batch[key] = np.concatenate([el[key] for el in element_list])
         # split into x,y

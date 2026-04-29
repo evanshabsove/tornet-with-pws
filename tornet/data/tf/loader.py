@@ -26,22 +26,32 @@ from tornet.data import preprocess as pp
 def create_tf_dataset(files:str,
                       variables: List[str]=ALL_VARIABLES,
                       n_frames:int=1,
-                      tilt_last: bool=True) -> tf.data.Dataset:
+                      tilt_last: bool=True,
+                      use_madis_data: bool=False) -> tf.data.Dataset:
     """
-    Creates a TF dataset object via the function read_file.   
-    This dataset is somewhat slow because of the use of 
+    Creates a TF dataset object via the function read_file.
+    This dataset is somewhat slow because of the use of
     tf.data.dataset.from_generator.  It is recommended to
-    use this only as a means to call ds.save() to create a 
+    use this only as a means to call ds.save() to create a
     much faster copy of the dataset.
     """
     assert len(files)>0
-    # grab one file to gets keys, shapes, etc
-    data = read_file(files[0],variables=variables,n_frames=n_frames, tilt_last=tilt_last)
-    
+    # Find first valid file to infer output signature
+    data = None
+    for f in files:
+        data = read_file(f, variables=variables, n_frames=n_frames,
+                         tilt_last=tilt_last, use_madis_data=use_madis_data)
+        if data is not None:
+            break
+    assert data is not None, "No valid files found to infer output signature"
+
     output_signature = { k:tf.TensorSpec(shape=data[k].shape,dtype=data[k].dtype,name=k) for k in data }
     def gen():
         for f in files:
-            yield read_file(f,variables=variables,n_frames=n_frames, tilt_last=tilt_last)
+            sample = read_file(f, variables=variables, n_frames=n_frames,
+                               tilt_last=tilt_last, use_madis_data=use_madis_data)
+            if sample is not None:
+                yield sample
     ds = tf.data.Dataset.from_generator(gen,
                                         output_signature=output_signature)
     return ds
@@ -80,17 +90,20 @@ def shard_function(data: tf.Tensor) -> np.int64:
 
 
 
-def make_tf_loader(data_root: str, 
+def make_tf_loader(data_root: str,
             data_type:str='train', # or 'test'
             years: list=list(range(2013,2023)),
-            batch_size: int=128, 
+            batch_size: int=128,
             weights: Dict=None,
             include_az: bool=False,
             random_state:int=1234,
             select_keys: list=None,
             tilt_last: bool=True,
             from_tfds: bool=False,
-            tfds_data_version: str='1.1.0'):
+            tfds_data_version: str='1.1.0',
+            use_madis_data: bool=False,
+            catalog=None,
+            max_files: int=None):
     """
     Initializes tf.data Dataset for training CNN Tornet baseline.
 
@@ -136,8 +149,10 @@ def make_tf_loader(data_root: str,
         if not tilt_last:
             ds = ds.map(lambda d: pp.permute_dims(d,(0,3,1,2), backend=tf))
     else: # Load directly from netcdf files
-        file_list = query_catalog(data_root, data_type, years, random_state)
-        ds = create_tf_dataset(file_list,variables=ALL_VARIABLES,n_frames=1, tilt_last=tilt_last) 
+        file_list = query_catalog(data_root, data_type, years, random_state,
+                                  catalog=catalog, max_files=max_files)
+        ds = create_tf_dataset(file_list, variables=ALL_VARIABLES, n_frames=1,
+                               tilt_last=tilt_last, use_madis_data=use_madis_data)
 
     ds=preproc(ds,weights,include_az,select_keys,tilt_last)
     ds = ds.prefetch(tf.data.AUTOTUNE)
