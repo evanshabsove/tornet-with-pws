@@ -22,6 +22,8 @@ from pathlib import Path
 
 # Zenodo DOIs for each year
 TORNET_URLS = {
+    2013: "https://doi.org/10.5281/zenodo.12636522",
+    2014: "https://doi.org/10.5281/zenodo.12637032",
     2015: "https://doi.org/10.5281/zenodo.12655151",
     2016: "https://doi.org/10.5281/zenodo.12655179",
     2017: "https://doi.org/10.5281/zenodo.12655183",

@@ -10,3 +10,4 @@ tornet_data
 tornado_madis_*
 tornado_no_madis_*
 latest
+results/*/*.keras

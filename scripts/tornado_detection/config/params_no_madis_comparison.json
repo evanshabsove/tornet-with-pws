@@ -1,8 +1,20 @@
 {
-    "epochs":8,
+    "epochs":15,
     "batch_size":128,
-    "train_years":[2013, 2014, 2015],
-    "val_years":[2016, 2017],
+    "train_years": [
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019,
+        2020
+    ],
+    "val_years": [
+        2021,
+        2022
+    ],
     "start_filters":48,
     "learning_rate":1e-4,
     "decay_steps":1386,
@@ -15,10 +27,9 @@
     "wW":0.5,
     "label_smooth":0,
     "loss":"cce",
-    "head":"maxpool",
+    "head":"mlp",
     "exp_name":"tornado_no_madis_comparison",
     "dataloader":"keras",
     "use_madis_data":false,
-    "catalog_path":"/Users/evanshabsove/Documents/tornado_reserch_paper/tornet/tornet_data/catalog_madis_eligible.csv",
-    "max_files":5000
+    "catalog_path":"/workspace/tornet_data/catalog_madis_eligible.csv"
 }

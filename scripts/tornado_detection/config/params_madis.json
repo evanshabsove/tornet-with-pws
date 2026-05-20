@@ -1,8 +1,20 @@
 {
     "epochs":15,
     "batch_size":128,
-    "train_years":[2013,2014],
-    "val_years":[2015],
+    "train_years": [
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019,
+        2020
+    ],
+    "val_years": [
+        2021,
+        2022
+    ],
     "start_filters":48,
     "learning_rate":1e-4,
     "decay_steps":1386,
@@ -18,5 +30,6 @@
     "head":"mlp",
     "exp_name":"tornado_madis_hybrid",
     "dataloader":"keras",
-    "use_madis_data":true
+    "use_madis_data":true,
+    "catalog_path":"/workspace/tornet_data/catalog_madis_eligible.csv"
 }
