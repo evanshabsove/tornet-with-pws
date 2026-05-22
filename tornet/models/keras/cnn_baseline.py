@@ -67,21 +67,28 @@ def build_model(shape:Tuple[int]=(120,240,2),
     
     # MADIS MLP branch (if enabled)
     if use_madis:
-        # Normalize MADIS features
         madis_normalized = normalize_madis(inputs['madis'])
-        # MLP branch for MADIS features
-        madis_branch = keras.layers.Dense(64, activation='relu', name='madis_dense1')(madis_normalized)
-        madis_branch = keras.layers.Dropout(0.3, name='madis_dropout')(madis_branch)
-        madis_branch = keras.layers.Dense(32, activation='relu', name='madis_dense2')(madis_branch)
-    
+        madis_branch = keras.layers.Dense(32, activation='relu',
+                                          kernel_regularizer=keras.regularizers.l2(l2_reg),
+                                          name='madis_dense1')(madis_normalized)
+        madis_branch = keras.layers.Dropout(0.5, name='madis_dropout1')(madis_branch)
+        madis_branch = keras.layers.Dense(16, activation='relu',
+                                          kernel_regularizer=keras.regularizers.l2(l2_reg),
+                                          name='madis_dense2')(madis_branch)
+        madis_branch = keras.layers.Dropout(0.5, name='madis_dropout2')(madis_branch)
+
     if head=='mlp':
         # MLP head
         x = keras.layers.Flatten()(x)
         # Fuse CNN features with MADIS features if enabled
         if use_madis:
             x = keras.layers.Concatenate(name='fusion_concatenate')([x, madis_branch])
-        x = keras.layers.Dense(units = 4096, activation ='relu')(x) 
-        x = keras.layers.Dense(units = 2024, activation ='relu')(x) 
+        x = keras.layers.Dense(units=1024, activation='relu',
+                               kernel_regularizer=keras.regularizers.l2(l2_reg))(x)
+        x = keras.layers.Dropout(0.4, name='head_dropout1')(x)
+        x = keras.layers.Dense(units=512, activation='relu',
+                               kernel_regularizer=keras.regularizers.l2(l2_reg))(x)
+        x = keras.layers.Dropout(0.4, name='head_dropout2')(x)
         output = keras.layers.Dense(1)(x)
     elif head=='maxpool':
         # Per gridcell

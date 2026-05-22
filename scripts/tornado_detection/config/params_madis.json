@@ -31,5 +31,6 @@
     "exp_name":"tornado_madis_hybrid",
     "dataloader":"keras",
     "use_madis_data":true,
-    "catalog_path":"/workspace/tornet_data/catalog_madis_eligible.csv"
+    "catalog_path":"/workspace/tornet_data/catalog_madis_eligible.csv",
+    "early_stopping_patience":3
 }

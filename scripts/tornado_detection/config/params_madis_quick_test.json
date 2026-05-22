@@ -1,8 +1,8 @@
 {
-    "epochs":8,
+    "epochs":2,
     "batch_size":128,
-    "train_years":[2013, 2014, 2015],
-    "val_years":[2016, 2017],
+    "train_years":[2013],
+    "val_years":[2014],
     "start_filters":48,
     "learning_rate":1e-4,
     "decay_steps":1386,

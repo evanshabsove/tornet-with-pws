@@ -198,7 +198,9 @@ def main(config):
     _tboard_dir, checkpoints_dir = make_callback_dirs(expdir)
 
     ## FIT — manual loop bypasses model.fit() to avoid TF threading deadlock with xarray/HDF5
-    history_dict = _manual_train_loop(nn, ds_train, ds_val, epochs, expdir, checkpoints_dir)
+    early_stopping_patience = config.get('early_stopping_patience', None)
+    history_dict = _manual_train_loop(nn, ds_train, ds_val, epochs, expdir, checkpoints_dir,
+                                      early_stopping_patience=early_stopping_patience)
 
     # At the end, report the best score observed over all epochs
     val_aucs = history_dict.get('val_AUC', [])
@@ -209,7 +211,7 @@ def main(config):
     return {'AUC': best_auc, 'AUCPR': best_aucpr}
 
 
-def _manual_train_loop(model, ds_train, ds_val, epochs, expdir, checkpoints_dir):
+def _manual_train_loop(model, ds_train, ds_val, epochs, expdir, checkpoints_dir, early_stopping_patience=None):
     """Manual epoch/batch loop that replaces model.fit().
 
     Iterates ds_train and ds_val via __getitem__ so Python—not TF's C++
@@ -218,6 +220,10 @@ def _manual_train_loop(model, ds_train, ds_val, epochs, expdir, checkpoints_dir)
     """
     csv_path = os.path.join(expdir, 'history.csv')
     history = defaultdict(list)
+
+    best_val_auc = -np.inf
+    epochs_without_improvement = 0
+    best_ckpt_path = None
 
     rng = np.random.default_rng(seed=1234)
     for epoch in range(epochs):
@@ -273,10 +279,23 @@ def _manual_train_loop(model, ds_train, ds_val, epochs, expdir, checkpoints_dir)
         # ---- Save history CSV ----
         pd.DataFrame(dict(history)).to_csv(csv_path, index=False)
 
-        # ---- Save checkpoint ----
-        ckpt_path = os.path.join(checkpoints_dir, f'tornadoDetector_{epoch + 1:03d}.keras')
-        model.save(ckpt_path)
-        logging.info(f'Saved checkpoint: {ckpt_path}')
+        # ---- Save checkpoint (best only) ----
+        current_val_auc = val_results.get('AUC', -np.inf)
+        if current_val_auc > best_val_auc:
+            best_val_auc = current_val_auc
+            epochs_without_improvement = 0
+            ckpt_path = os.path.join(checkpoints_dir, f'tornadoDetector_best.keras')
+            model.save(ckpt_path)
+            best_ckpt_path = ckpt_path
+            logging.info(f'New best val_AUC={best_val_auc:.4f} — saved checkpoint: {ckpt_path}')
+        else:
+            epochs_without_improvement += 1
+            logging.info(f'No improvement for {epochs_without_improvement} epoch(s). Best val_AUC={best_val_auc:.4f}')
+
+        # ---- Early stopping ----
+        if early_stopping_patience is not None and epochs_without_improvement >= early_stopping_patience:
+            logging.info(f'Early stopping triggered at epoch {epoch + 1} (patience={early_stopping_patience})')
+            break
 
     return dict(history)
 
