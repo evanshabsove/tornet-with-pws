@@ -83,10 +83,10 @@ def build_model(shape:Tuple[int]=(120,240,2),
         # Fuse CNN features with MADIS features if enabled
         if use_madis:
             x = keras.layers.Concatenate(name='fusion_concatenate')([x, madis_branch])
-        x = keras.layers.Dense(units=1024, activation='relu',
+        x = keras.layers.Dense(units=4096, activation='relu',
                                kernel_regularizer=keras.regularizers.l2(l2_reg))(x)
         x = keras.layers.Dropout(0.4, name='head_dropout1')(x)
-        x = keras.layers.Dense(units=512, activation='relu',
+        x = keras.layers.Dense(units=2048, activation='relu',
                                kernel_regularizer=keras.regularizers.l2(l2_reg))(x)
         x = keras.layers.Dropout(0.4, name='head_dropout2')(x)
         output = keras.layers.Dense(1)(x)

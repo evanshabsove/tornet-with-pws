@@ -179,15 +179,12 @@ cp <no_madis_run_folder>/checkpoints/tornadoDetector_best.keras /workspace/resul
 cp <no_madis_run_folder>/history.csv /workspace/results/no_madis_history.csv
 cp <no_madis_run_folder>/params.json /workspace/results/no_madis_params.json
 
-# Compress
-tar -czf results.tar.gz /workspace/results
 ```
-
+ssh -p 60149 root@182.224.239.168 -L 8080:localhost:8080
 From your **local machine**:
 
 ```bash
-scp -P <PORT> -i ~/.ssh/id_ed25519 root@<IP_ADDRESS>:/workspace/results.tar.gz ./
-tar -xzf results.tar.gz
+scp -P 60149 -i ~/.ssh/id_ed25519 -r root@182.224.239.168 :/workspace/results ./
 ```
 
 ---
