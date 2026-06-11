@@ -15,7 +15,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 import keras
 from tornet.models.keras.layers import CoordConv2D, FillNaNs
-from tornet.data.constants import CHANNEL_MIN_MAX, ALL_VARIABLES, MADIS_MIN_MAX
+from tornet.data.constants import CHANNEL_MIN_MAX, ALL_VARIABLES, MADIS_MIN_MAX, MADIS_TOP3_MIN_MAX
 
 
 def build_model(shape:Tuple[int]=(120,240,2),
@@ -26,7 +26,9 @@ def build_model(shape:Tuple[int]=(120,240,2),
                 background_flag:float=-3.0,
                 include_range_folded:bool=True,
                 head='maxpool',
-                use_madis:bool=False):
+                head_units:Tuple[int]=(1024,512),
+                use_madis:bool=False,
+                madis_min_max=None):
     # Create input layers for each input_variables
     inputs = {}
     for v in input_variables:
@@ -35,7 +37,8 @@ def build_model(shape:Tuple[int]=(120,240,2),
     
     # Create MADIS input if enabled (needs to be created early with other inputs)
     if use_madis:
-        madis_input = keras.Input((len(MADIS_MIN_MAX),), name='madis')
+        _madis_min_max = madis_min_max if madis_min_max is not None else MADIS_MIN_MAX
+        madis_input = keras.Input((len(_madis_min_max),), name='madis')
         inputs['madis'] = madis_input
     
     # Normalize inputs and concate along channel dim
@@ -67,7 +70,7 @@ def build_model(shape:Tuple[int]=(120,240,2),
     
     # MADIS MLP branch (if enabled)
     if use_madis:
-        madis_normalized = normalize_madis(inputs['madis'])
+        madis_normalized = normalize_madis(inputs['madis'], _madis_min_max)
         madis_branch = keras.layers.Dense(32, activation='relu',
                                           kernel_regularizer=keras.regularizers.l2(l2_reg),
                                           name='madis_dense1')(madis_normalized)
@@ -83,10 +86,10 @@ def build_model(shape:Tuple[int]=(120,240,2),
         # Fuse CNN features with MADIS features if enabled
         if use_madis:
             x = keras.layers.Concatenate(name='fusion_concatenate')([x, madis_branch])
-        x = keras.layers.Dense(units=4096, activation='relu',
+        x = keras.layers.Dense(units=head_units[0], activation='relu',
                                kernel_regularizer=keras.regularizers.l2(l2_reg))(x)
         x = keras.layers.Dropout(0.4, name='head_dropout1')(x)
-        x = keras.layers.Dense(units=2048, activation='relu',
+        x = keras.layers.Dense(units=head_units[1], activation='relu',
                                kernel_regularizer=keras.regularizers.l2(l2_reg))(x)
         x = keras.layers.Dropout(0.4, name='head_dropout2')(x)
         output = keras.layers.Dense(1)(x)
@@ -144,16 +147,29 @@ def normalize(x,
                                          variance=var,
                                          name='Normalize_%s' % name)(x)
 
-def normalize_madis(x):
+class MadisNormalization(keras.layers.Layer):
+    def __init__(self, means, stds, **kwargs):
+        super().__init__(**kwargs)
+        self.means = list(means)
+        self.stds = list(stds)
+        self._means = np.array(means, dtype=np.float32)
+        self._stds = np.array(stds, dtype=np.float32)
+
+    def call(self, x):
+        return (x - self._means) / self._stds
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({'means': self.means, 'stds': self.stds})
+        return config
+
+
+def normalize_madis(x, madis_min_max=None):
     """Normalize MADIS features to [-1, 1] using MADIS_MIN_MAX ranges."""
-    min_max = np.array(MADIS_MIN_MAX, dtype=np.float32)
+    mm = madis_min_max if madis_min_max is not None else MADIS_MIN_MAX
+    min_max = np.array(mm, dtype=np.float32)
     means = (min_max[:, 0] + min_max[:, 1]) / 2
     stds  = (min_max[:, 1] - min_max[:, 0]) / 2
-    n = len(MADIS_MIN_MAX)
-    return keras.layers.Lambda(
-        lambda inputs: (inputs - means) / stds,
-        output_shape=(n,),
-        name='Normalize_madis'
-    )(x)
+    return MadisNormalization(means.tolist(), stds.tolist(), name='Normalize_madis')(x)
 
 

@@ -28,9 +28,10 @@
     "label_smooth":0,
     "loss":"cce",
     "head":"mlp",
-    "exp_name":"tornado_no_madis_comparison",
+    "exp_name":"tornado_madis_top3",
     "dataloader":"keras",
-    "use_madis_data":false,
+    "use_madis_data":true,
+    "madis_feature_set":"top3",
     "catalog_path":"/workspace/tornet_data/catalog_madis_eligible.csv",
     "early_stopping_patience":3
 }

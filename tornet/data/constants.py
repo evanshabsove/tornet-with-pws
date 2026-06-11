@@ -55,6 +55,9 @@ MADIS_MIN_MAX = [
     [-7., 28.],          # instability_proxy_T0 (K) — T_T0 - Td_T0
 ]
 
+# Top-3 features by weight importance: pressure, wind_gust, pressure_anomaly_24h
+MADIS_TOP3_MIN_MAX = MADIS_MIN_MAX[:3]
+
 
 
 

@@ -18,6 +18,7 @@ from tornet.data.loader import get_dataloader
 from tornet.metrics.keras import metrics as tfm
 
 import argparse
+import json
 import logging
 logging.basicConfig(level=logging.INFO)
 
@@ -30,6 +31,9 @@ def main():
     parser.add_argument("--model_path",
                         help="Pretrained model to test (.keras)",
                         default=None)
+    parser.add_argument("--params_path",
+                        help="Path to params.json saved alongside the model",
+                        default=None)
     parser.add_argument(
         "--dataloader",
         help='Which data loader to use for loading test data',
@@ -40,14 +44,10 @@ def main():
 
     trained_model = args.model_path
     if trained_model is None:
-        # download model from hugging face
-        # alternatively, you can manually download the file
-        # from https://huggingface.co/tornet-ml/tornado_detector_baseline_v1
-        # and point to it using --model_path
         from huggingface_hub import hf_hub_download
-        trained_model = hf_hub_download(repo_id="tornet-ml/tornado_detector_baseline_v1", 
+        trained_model = hf_hub_download(repo_id="tornet-ml/tornado_detector_baseline_v1",
                                         filename="tornado_detector_baseline.keras")
-        
+
     dataloader = args.dataloader
 
     logging.info(f"Using {keras.config.backend()} backend")
@@ -55,18 +55,48 @@ def main():
 
     if ("tfds" in dataloader) and ('TFDS_DATA_DIR' in os.environ):
         logging.info('Using TFDS dataset location at '+os.environ['TFDS_DATA_DIR'])
-    
-    # load model
-    model = keras.saving.load_model(trained_model,compile=False)
+
+    # Build model from params then load weights (avoids Lambda deserialization issues)
+    from tornet.models.keras.cnn_baseline import build_model
+    from tornet.data.constants import MADIS_MIN_MAX, MADIS_TOP3_MIN_MAX
+
+    params = {}
+    if args.params_path:
+        with open(args.params_path) as f:
+            raw = json.load(f)
+        # saved params may be nested under "config"
+        params = raw.get('config', raw)
+
+    use_madis = params.get('use_madis_data', False)
+    madis_feature_set = params.get('madis_feature_set', 'full')
+    head = params.get('head', 'maxpool')
+    start_filters = params.get('start_filters', 48)
+    l2_reg = params.get('l2_reg', 1e-5)
+
+    madis_mm = MADIS_TOP3_MIN_MAX if madis_feature_set == 'top3' else MADIS_MIN_MAX
+    model = build_model(
+        head=head,
+        head_units=(1024, 512),
+        use_madis=use_madis,
+        madis_min_max=madis_mm if use_madis else None,
+        start_filters=start_filters,
+        l2_reg=l2_reg,
+    )
+    model.load_weights(trained_model)
 
     ## Set up data loader
     test_years = range(2013,2023)
-    ds_test = get_dataloader(dataloader, 
-                             data_root, 
-                             test_years, 
-                             "test", 
+    dataloader_kwargs = {}
+    if use_madis:
+        dataloader_kwargs['use_madis_data'] = True
+        dataloader_kwargs['madis_feature_set'] = madis_feature_set
+    ds_test = get_dataloader(dataloader,
+                             data_root,
+                             test_years,
+                             "test",
                              64,
-                             select_keys=list(model.input.keys()))
+                             select_keys=list(model.input.keys()),
+                             **dataloader_kwargs)
 
 
     # Compute various metrics

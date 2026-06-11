@@ -63,10 +63,12 @@ Copy the entire line including `ssh-ed25519` at the start and your email at the 
 Vast.ai provides an SSH command in the dashboard. Use:
 
 ```bash
-ssh -p <PORT> root@<IP_ADDRESS> -i ~/.ssh/id_ed25519
+ssh -p 34395 root@70.30.158.46 -L 8080:localhost:8080
 ```
 
 ---
+
+ssh -p 34395 root@184.191.105.145 -L 8080:localhost:8080
 
 ## Step 5: Upload Code and CSVs
 
@@ -75,10 +77,10 @@ From your **local machine** (new terminal tab):
 ```bash
 cd /Users/evanshabsove/Documents/tornado_reserch_paper/tornet
 
-scp -P <PORT> -i ~/.ssh/id_ed25519 tornet_code.zip root@<IP_ADDRESS>:/workspace/
-scp -P <PORT> -i ~/.ssh/id_ed25519 tornet_data/madis_features_clean.csv root@<IP_ADDRESS>:/workspace/tornet_data/
-scp -P <PORT> -i ~/.ssh/id_ed25519 tornet_data/catalog_madis_eligible.csv root@<IP_ADDRESS>:/workspace/tornet_data/
-scp -P <PORT> -i ~/.ssh/id_ed25519 tornet_data/catalog.csv root@<IP_ADDRESS>:/workspace/tornet_data/
+scp -P 34395 -i ~/.ssh/id_ed25519 tornet_code.zip root@70.30.158.46:/workspace/
+scp -P 34395 -i ~/.ssh/id_ed25519 tornet_data/madis_features_clean.csv root@70.30.158.46:/workspace/tornet_data/
+scp -P 34395 -i ~/.ssh/id_ed25519 tornet_data/catalog_madis_eligible.csv root@70.30.158.46:/workspace/tornet_data/
+scp -P 34395 -i ~/.ssh/id_ed25519 tornet_data/catalog.csv root@70.30.158.46:/workspace/tornet_data/
 ```
 
 ---
@@ -115,11 +117,16 @@ python download_tornet_data.py
 This takes ~20–30 minutes. To speed it up next time, download years in parallel:
 
 ```bash
-python download_tornet_data.py --years 2013 2014 --tornet-data-dir /workspace/tornet_data &
-python download_tornet_data.py --years 2015 2016 --tornet-data-dir /workspace/tornet_data &
-python download_tornet_data.py --years 2017 2018 --tornet-data-dir /workspace/tornet_data &
-python download_tornet_data.py --years 2019 2020 --tornet-data-dir /workspace/tornet_data &
-python download_tornet_data.py --years 2021 2022 --tornet-data-dir /workspace/tornet_data &
+python3 download_tornet_data.py --years 2013 --tornet-data-dir /workspace/tornet_data &
+python3 download_tornet_data.py --years 2014 --tornet-data-dir /workspace/tornet_data &
+python3 download_tornet_data.py --years 2015 --tornet-data-dir /workspace/tornet_data &
+python3 download_tornet_data.py --years 2016 --tornet-data-dir /workspace/tornet_data &
+python3 download_tornet_data.py --years 2017 --tornet-data-dir /workspace/tornet_data &
+python3 download_tornet_data.py --years 2018 --tornet-data-dir /workspace/tornet_data &
+python3 download_tornet_data.py --years 2019 --tornet-data-dir /workspace/tornet_data &
+python3 download_tornet_data.py --years 2020 --tornet-data-dir /workspace/tornet_data &
+python3 download_tornet_data.py --years 2021 --tornet-data-dir /workspace/tornet_data &
+python3 download_tornet_data.py --years 2022 --tornet-data-dir /workspace/tornet_data &
 wait
 ```
 
@@ -160,6 +167,29 @@ You can close your laptop once training starts — the instance keeps running.
 
 ---
 
+## Step 9b: Run Cosine Annealing Training (Second Batch)
+
+After the standard 5x runs are complete, run the cosine annealing variants for comparison:
+
+```bash
+export TORNET_ROOT=/workspace/tornet_data
+export KERAS_BACKEND=tensorflow
+
+# No-MADIS with cosine annealing
+python3 scripts/tornado_detection/train_tornado_keras.py \
+    scripts/tornado_detection/config/params_no_madis_cosine.json
+
+# MADIS full with cosine annealing
+python3 scripts/tornado_detection/train_tornado_keras.py \
+    scripts/tornado_detection/config/params_madis_cosine.json
+
+# MADIS top-3 with cosine annealing
+python3 scripts/tornado_detection/train_tornado_keras.py \
+    scripts/tornado_detection/config/params_madis_top3_cosine.json
+```
+
+---
+
 ## Step 10: Download Results
 
 Only grab what you need — each run saves ~34GB of checkpoints but you only need the best model and metrics.
@@ -170,21 +200,24 @@ On the **instance**:
 mkdir /workspace/results
 
 # MADIS run
-cp <madis_run_folder>/checkpoints/tornadoDetector_best.keras /workspace/results/madis_best.keras
-cp <madis_run_folder>/history.csv /workspace/results/madis_history.csv
-cp <madis_run_folder>/params.json /workspace/results/madis_params.json
+cp tornado_madis_hybrid260605065031-None-None/checkpoints/tornadoDetector_best.keras /workspace/results/madis_best.keras
+cp tornado_madis_hybrid260605065031-None-None/history.csv /workspace/results/madis_history.csv
+cp tornado_madis_hybrid260605065031-None-None/params.json /workspace/results/madis_params.json
+
+# Madis top 3
+cp tornado_madis_top3260605141027-None-None/checkpoints/tornadoDetector_best.keras /workspace/results/madis_top3_best.keras
+cp tornado_madis_top3260605141027-None-None/history.csv /workspace/results/madis_top3_history.csv
+cp tornado_madis_top3260605141027-None-None/params.json /workspace/results/madis_top3_params.json
 
 # No-MADIS run
-cp <no_madis_run_folder>/checkpoints/tornadoDetector_best.keras /workspace/results/no_madis_best.keras
-cp <no_madis_run_folder>/history.csv /workspace/results/no_madis_history.csv
-cp <no_madis_run_folder>/params.json /workspace/results/no_madis_params.json
+cp tornado_no_madis_comparison260605005916-None-None/checkpoints/tornadoDetector_best.keras /workspace/results/no_madis_best.keras
+cp tornado_no_madis_comparison260605005916-None-None/history.csv /workspace/results/no_madis_history.csv
+cp tornado_no_madis_comparison260605005916-None-None/params.json /workspace/results/no_madis_params.json
 
 ```
-ssh -p 60149 root@182.224.239.168 -L 8080:localhost:8080
-From your **local machine**:
 
 ```bash
-scp -P 60149 -i ~/.ssh/id_ed25519 -r root@182.224.239.168 :/workspace/results ./
+scp -P 34395 -i ~/.ssh/id_ed25519 -r root@70.30.158.46 :/workspace/results ./
 ```
 
 ---

@@ -30,6 +30,7 @@ from tornet.data.constants import ALL_VARIABLES
 from tornet.models.keras.losses import mae_loss
 
 from tornet.models.keras.cnn_baseline import build_model
+from tornet.data.constants import MADIS_MIN_MAX, MADIS_TOP3_MIN_MAX
 
 from tornet.metrics.keras import metrics as tfm
 
@@ -68,6 +69,33 @@ DEFAULT_CONFIG={
     'use_madis_data': False
 }
 
+def build_lr_schedule(config):
+    learning_rate = config.get('learning_rate')
+    lr_schedule = config.get('lr_schedule', 'exponential')
+
+    if lr_schedule == 'cosine_restart':
+        decay_steps = config.get('decay_steps', 1386)
+        first_decay_steps = config.get('cosine_first_decay_steps', 3 * decay_steps)
+        t_mul = config.get('cosine_t_mul', 2.0)
+        m_mul = config.get('cosine_m_mul', 0.9)
+        alpha = config.get('cosine_alpha', 1e-6)
+        logging.info(f'Using CosineDecayRestarts: first_decay_steps={first_decay_steps}, t_mul={t_mul}, m_mul={m_mul}, alpha={alpha}')
+        return keras.optimizers.schedules.CosineDecayRestarts(
+            initial_learning_rate=learning_rate,
+            first_decay_steps=first_decay_steps,
+            t_mul=t_mul,
+            m_mul=m_mul,
+            alpha=alpha,
+        )
+    else:
+        decay_steps = config.get('decay_steps')
+        decay_rate = config.get('decay_rate')
+        logging.info(f'Using ExponentialDecay: decay_steps={decay_steps}, decay_rate={decay_rate}')
+        return keras.optimizers.schedules.ExponentialDecay(
+            learning_rate, decay_steps, decay_rate, staircase=False, name="exp_decay"
+        )
+
+
 def main(config):
     # Gather all hyperparams
     epochs=config.get('epochs')
@@ -93,6 +121,7 @@ def main(config):
     dataloader=config.get('dataloader')
     dataloader_kwargs = config.get('dataloader_kwargs')
     use_madis_data = config.get('use_madis_data')
+    madis_feature_set = config.get('madis_feature_set', 'full')
     catalog_path = config.get('catalog_path', None)
     max_files = config.get('max_files', None)
 
@@ -113,7 +142,7 @@ def main(config):
     select_keys = input_variables + ['range_folded_mask', 'coordinates']
     if use_madis_data:
         select_keys.append('madis')
-        dataloader_kwargs.update({'use_madis_data': True})
+        dataloader_kwargs.update({'use_madis_data': True, 'madis_feature_set': madis_feature_set})
     dataloader_kwargs.update({'select_keys': select_keys})
     # Pass catalog_df and max_files directly (not via dataloader_kwargs to avoid JSON serialization issues)
     extra_kwargs = {}
@@ -135,17 +164,18 @@ def main(config):
         in_shapes = (None, None, get_shape(x)[-1])
         c_shapes = (None, None, x["coordinates"].shape[-1])
     
+    madis_mm = MADIS_TOP3_MIN_MAX if madis_feature_set == 'top3' else MADIS_MIN_MAX
     nn = build_model(shape=in_shapes,
                      c_shape=c_shapes,
                      start_filters=start_filters,
                      l2_reg=l2_reg,
                      input_variables=input_variables,
                      head=head,
-                     use_madis=use_madis_data)
+                     use_madis=use_madis_data,
+                     madis_min_max=madis_mm if use_madis_data else None)
     
     # model setup
-    lr=keras.optimizers.schedules.ExponentialDecay(
-                learning_rate, decay_steps, decay_rate, staircase=False, name="exp_decay")
+    lr = build_lr_schedule(config)
     
     from_logits=True
     if loss_fn.lower()=='cce':

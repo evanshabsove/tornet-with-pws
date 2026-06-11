@@ -56,6 +56,7 @@ class KerasDataLoader(keras.utils.PyDataset):
         use_multiprocessing: bool = False,
         max_queue_size: int = 10,
         use_madis_data: bool = False,
+        madis_feature_set: str = 'full',
         max_files: int = None,
     ):
         """
@@ -94,6 +95,7 @@ class KerasDataLoader(keras.utils.PyDataset):
         self.tilt_last = tilt_last
         self.file_list = query_catalog(data_root, data_type, years, random_state, catalog=catalog, max_files=max_files)
         self.use_madis_data = use_madis_data
+        self.madis_feature_set = madis_feature_set
         super().__init__(workers, use_multiprocessing, max_queue_size)
 
     def __len__(self) -> int:
@@ -109,7 +111,7 @@ class KerasDataLoader(keras.utils.PyDataset):
 
         element_list = []
         for f in files_batch:
-            element_list.append(read_file(f, variables=ALL_VARIABLES, n_frames=1, tilt_last=self.tilt_last, use_madis_data=self.use_madis_data))
+            element_list.append(read_file(f, variables=ALL_VARIABLES, n_frames=1, tilt_last=self.tilt_last, use_madis_data=self.use_madis_data, madis_feature_set=self.madis_feature_set))
 
         # Remove None elements (in case of missing data)
         element_list = [el for el in element_list if el is not None]

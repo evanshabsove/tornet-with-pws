@@ -60,7 +60,8 @@ def read_file(f: str,
               variables: List['str']=ALL_VARIABLES,
               n_frames:int=1,
               tilt_last:bool=True,
-              use_madis_data:bool=False) -> Dict[str,np.ndarray]:
+              use_madis_data:bool=False,
+              madis_feature_set:str='full') -> Dict[str,np.ndarray]:
     """
     Extracts data from a single netcdf file
 
@@ -153,7 +154,7 @@ def read_file(f: str,
                     except (KeyError, TypeError):
                         return 0.0
 
-                madis_values = [
+                all_madis_values = [
                     float(pressure),
                     float(wind_gust),
                     _get('pressure_anomaly_24h'),
@@ -161,7 +162,12 @@ def read_file(f: str,
                     _get('instability_proxy_T2h'),
                     _get('instability_proxy_T0'),
                 ]
-                
+
+                if madis_feature_set == 'top3':
+                    madis_values = all_madis_values[:3]
+                else:
+                    madis_values = all_madis_values
+
                 data['madis'] = np.array(madis_values, dtype=np.float32)
                 
             except (KeyError, ValueError):
