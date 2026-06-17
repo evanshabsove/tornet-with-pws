@@ -79,7 +79,7 @@ When `use_madis_data=True`, each radar sample is matched to MADIS observations b
 2. Looking up all rows for that `storm_id` in the cached DataFrame
 3. Aggregating multiple simultaneous station readings by averaging (`groupby(...).mean()`)
 4. Finding the temporally closest observation to the radar frame's timestamp
-5. **Rejecting the sample entirely (returns `None`) if the closest observation is >10 minutes away, or if any of the 7 feature values is NaN**
+5. **Rejecting the sample entirely (returns `None`) if the closest observation is >15 minutes away (900 seconds), or if any of the 7 feature values is NaN**
 
 This filtering means MADIS training sets are a strict subset of the full TorNet dataset — not all storms have coverage.
 
