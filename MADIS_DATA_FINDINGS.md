@@ -89,11 +89,32 @@ No strong correlations with EF rating (all |r| < 0.35). MADIS is better at **det
 
 ---
 
+## Temporal Matching Window Analysis (June 2026)
+
+We investigated how much the temporal match window affects training data coverage.
+
+**Two different metrics were being conflated:**
+- **37.4% (per-observation)**: fraction of all individual MADIS observation timestamps within 15 min of the radar frame. One storm with readings at -5, +25, +55 min = 1/3 = 33%.
+- **49.1% (per-catalog-row)**: fraction of catalog rows where the storm has *at least one* valid (pressure + wind_gust) MADIS observation within 15 min. The same storm passes because the -5 min reading qualifies.
+
+**Coverage at different window sizes (full catalog = 203,133 rows):**
+
+| Window | Eligible rows | % of catalog |
+|---|---|---|
+| 15 minutes (original) | 99,774 | 49.1% |
+| No cutoff (±60 min download window) | 105,108 | 51.7% |
+
+**Conclusion:** Removing the 15-minute cutoff only gains ~5,300 rows (+2.6%). PWS stations report on ~30-minute cycles, and if a station reported for a storm at all, there was usually a reading within 15 minutes of the radar frame anyway. **The real bottleneck is storm-level MADIS coverage (valid pressure + wind_gust), not the time window.** The architecture (late fusion) is the more likely performance bottleneck.
+
+`loader.py` now uses no temporal cutoff. `build_madis_eligible_catalog.py` updated to match.
+
+---
+
 ## Key Limitations
 
 1. **30-minute reporting interval** — misses brief peak conditions during EF0-EF1 tornadoes (avg duration 4–8 min)
 2. **Low station density** — averaging 2.7 noisy PWS sensors introduces noise
-3. **Only 37.4% of samples match within 15 minutes** — the actual cutoff used in `loader.py` — so ~62% of samples are dropped from MADIS training runs
+3. **~48% of catalog has no MADIS coverage** — storms without any valid pressure + wind_gust observation are excluded entirely from MADIS training runs
 4. **Sensor saturation** — RH hits 100% in 1.4% of tornado events; wind speed at 0 m/s in 20% of readings
 5. **No correlation with EF intensity** — MADIS can't distinguish strong from weak tornadoes
 
@@ -114,7 +135,7 @@ No strong correlations with EF rating (all |r| < 0.35). MADIS is better at **det
 The signal **exists** — particularly in the anomaly features. The likely reasons MADIS hasn't improved AUC in training runs:
 
 1. **Late fusion architecture** gives MADIS features minimal influence over a 40K-dimensional flattened radar representation
-2. **Only 24.4% temporal match rate** means MADIS models train on fewer samples, potentially biasing the eligible catalog
+2. **~48% of catalog has no MADIS coverage** — MADIS models train on a strict subset of storms, potentially biasing comparisons
 3. **Station sparsity** (avg 2.7 stations) means the averaged MADIS values are noisy
 4. **The CNN may already implicitly capture surface proxies** through low-level radar signatures
 

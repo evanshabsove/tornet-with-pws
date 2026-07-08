@@ -18,7 +18,7 @@
     "head":"mlp",
     "exp_name":"tornado_madis_comparison",
     "dataloader":"keras",
-    "use_madis_data":true,
+    "use_madis_data":false,
     "catalog_path":"/Users/evanshabsove/Documents/tornado_reserch_paper/tornet/tornet_data/catalog_madis_eligible.csv",
     "max_files":5000
 }

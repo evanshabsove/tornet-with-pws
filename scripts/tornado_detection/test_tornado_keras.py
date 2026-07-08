@@ -69,6 +69,7 @@ def main():
 
     use_madis = params.get('use_madis_data', False)
     madis_feature_set = params.get('madis_feature_set', 'full')
+    madis_fusion = params.get('madis_fusion', 'late')
     head = params.get('head', 'maxpool')
     start_filters = params.get('start_filters', 48)
     l2_reg = params.get('l2_reg', 1e-5)
@@ -81,6 +82,7 @@ def main():
         madis_min_max=madis_mm if use_madis else None,
         start_filters=start_filters,
         l2_reg=l2_reg,
+        madis_fusion=madis_fusion,
     )
     model.load_weights(trained_model)
 

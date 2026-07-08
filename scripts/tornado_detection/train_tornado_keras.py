@@ -122,6 +122,7 @@ def main(config):
     dataloader_kwargs = config.get('dataloader_kwargs')
     use_madis_data = config.get('use_madis_data')
     madis_feature_set = config.get('madis_feature_set', 'full')
+    madis_fusion = config.get('madis_fusion', 'late')
     catalog_path = config.get('catalog_path', None)
     max_files = config.get('max_files', None)
 
@@ -172,7 +173,8 @@ def main(config):
                      input_variables=input_variables,
                      head=head,
                      use_madis=use_madis_data,
-                     madis_min_max=madis_mm if use_madis_data else None)
+                     madis_min_max=madis_mm if use_madis_data else None,
+                     madis_fusion=madis_fusion)
     
     # model setup
     lr = build_lr_schedule(config)

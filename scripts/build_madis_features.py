@@ -304,6 +304,11 @@ def main():
     if not missing.empty:
         print(f"Missing values:\n{missing.to_string()}")
 
+    print(f"\n=== Step 6: Drop rows missing required features ===")
+    before = len(df_final)
+    df_final = df_final[df_final['pressure'].notna() & df_final['wind_gust'].notna()].copy()
+    print(f"  Dropped {before - len(df_final):,} rows with null pressure or wind_gust ({len(df_final):,} remaining)")
+
     print(f"\n=== Saving ===")
     df_final.to_csv(OUTPUT_CSV, index=False)
     df_final.to_pickle(OUTPUT_PKL)

@@ -1,8 +1,9 @@
 """
 Build a pre-filtered catalog containing only entries with valid MADIS coverage.
 
-For each row in catalog.csv, checks whether the storm has a MADIS observation
-(non-NaN pressure + wind_gust) within 15 minutes of the catalog row's start_time.
+For each row in catalog.csv, checks whether the storm has any MADIS observation
+with non-NaN pressure + wind_gust (no temporal cutoff — MADIS was downloaded for
+±60 min around each radar frame, so the closest observation is always usable).
 Saves the filtered catalog to $TORNET_ROOT/catalog_madis_eligible.csv.
 
 Both MADIS and no-MADIS training runs should use this catalog so they train and
@@ -25,8 +26,6 @@ CATALOG_PATH = DATA_ROOT / "catalog.csv"
 MADIS_PATH   = DATA_ROOT / "madis_features_clean.csv"
 OUTPUT_PATH  = DATA_ROOT / "catalog_madis_eligible.csv"
 
-MATCH_WINDOW_SECONDS = 900  # 15 minutes
-
 
 def main():
     print(f"TORNET_ROOT = {DATA_ROOT}\n")
@@ -37,29 +36,15 @@ def main():
 
     print("Loading MADIS features...")
     madis = pd.read_csv(MADIS_PATH)
-    madis["timestamp"] = pd.to_datetime(madis["timestamp"], errors="coerce")
     madis_valid = madis[madis["pressure"].notna() & madis["wind_gust"].notna()].copy()
-    madis_valid["storm_id"] = madis_valid["storm_id"].astype(str)
     print(f"  MADIS rows with valid pressure + wind_gust: {len(madis_valid):,}")
 
-    # Group MADIS timestamps by storm_id for fast per-storm lookup
-    madis_by_storm = madis_valid.groupby("storm_id")["timestamp"].apply(list).to_dict()
-    madis_storm_ids = set(madis_by_storm.keys())
+    # Any storm with at least one valid (pressure, wind_gust) observation is eligible.
+    # No temporal cutoff — loader.py picks the closest observation within the ±60 min download window.
+    eligible_storm_ids = set(madis_valid["storm_id"].astype(str))
 
     print(f"\nChecking {len(catalog):,} catalog rows for MADIS coverage...")
-    eligible_mask = np.zeros(len(catalog), dtype=bool)
-
-    for i, row in tqdm(catalog.iterrows(), total=len(catalog), desc="Filtering"):
-        storm_id = str(row["event_id"])
-        if storm_id not in madis_storm_ids:
-            continue
-        start_time = row["start_time"]
-        if pd.isna(start_time):
-            continue
-        madis_timestamps = madis_by_storm[storm_id]
-        diffs = [abs((ts - start_time).total_seconds()) for ts in madis_timestamps]
-        if min(diffs) <= MATCH_WINDOW_SECONDS:
-            eligible_mask[i] = True
+    eligible_mask = catalog["event_id"].astype(str).isin(eligible_storm_ids).values
 
     catalog_eligible = catalog[eligible_mask].copy()
 

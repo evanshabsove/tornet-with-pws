@@ -125,14 +125,9 @@ def read_file(f: str,
                 # Convert timestamps to datetime for comparison
                 storm_timestamps = pd.to_datetime(storm_data_agg.index)
                 
-                # Find the temporally closest MADIS observation (within 15 minutes)
+                # Find the temporally closest MADIS observation (no cutoff — download bounded to ±60 min)
                 time_diffs = abs(storm_timestamps - timestamp_dt)
                 min_diff_idx = time_diffs.argmin()
-                min_diff_seconds = time_diffs[min_diff_idx].total_seconds()
-
-                # Only use MADIS data if within 15 minutes
-                if min_diff_seconds > 900:  # 15 minutes = 900 seconds
-                    return None  # No nearby MADIS observation
 
                 # Get the row at the best matching timestamp
                 best_timestamp = storm_timestamps[min_diff_idx]

@@ -63,12 +63,12 @@ Copy the entire line including `ssh-ed25519` at the start and your email at the 
 Vast.ai provides an SSH command in the dashboard. Use:
 
 ```bash
-ssh -p 34395 root@70.30.158.46 -L 8080:localhost:8080
+ssh -p 34190 root@70.30.158.46 -L 8080:localhost:8080
 ```
 
 ---
 
-ssh -p 34395 root@184.191.105.145 -L 8080:localhost:8080
+ssh -p 34190 root@184.191.105.145 -L 8080:localhost:8080
 
 ## Step 5: Upload Code and CSVs
 
@@ -77,10 +77,10 @@ From your **local machine** (new terminal tab):
 ```bash
 cd /Users/evanshabsove/Documents/tornado_reserch_paper/tornet
 
-scp -P 34395 -i ~/.ssh/id_ed25519 tornet_code.zip root@70.30.158.46:/workspace/
-scp -P 34395 -i ~/.ssh/id_ed25519 tornet_data/madis_features_clean.csv root@70.30.158.46:/workspace/tornet_data/
-scp -P 34395 -i ~/.ssh/id_ed25519 tornet_data/catalog_madis_eligible.csv root@70.30.158.46:/workspace/tornet_data/
-scp -P 34395 -i ~/.ssh/id_ed25519 tornet_data/catalog.csv root@70.30.158.46:/workspace/tornet_data/
+scp -P 34190 -i ~/.ssh/id_ed25519 tornet_code.zip root@70.30.158.46:/workspace/
+scp -P 34190 -i ~/.ssh/id_ed25519 tornet_data/madis_features_clean.csv root@70.30.158.46:/workspace/tornet_data/
+scp -P 34190 -i ~/.ssh/id_ed25519 tornet_data/catalog_madis_eligible.csv root@70.30.158.46:/workspace/tornet_data/
+scp -P 34190 -i ~/.ssh/id_ed25519 tornet_data/catalog.csv root@70.30.158.46:/workspace/tornet_data/
 ```
 
 ---
@@ -117,16 +117,22 @@ python download_tornet_data.py
 This takes ~20–30 minutes. To speed it up next time, download years in parallel:
 
 ```bash
-python3 download_tornet_data.py --years 2013 --tornet-data-dir /workspace/tornet_data &
-python3 download_tornet_data.py --years 2014 --tornet-data-dir /workspace/tornet_data &
-python3 download_tornet_data.py --years 2015 --tornet-data-dir /workspace/tornet_data &
-python3 download_tornet_data.py --years 2016 --tornet-data-dir /workspace/tornet_data &
-python3 download_tornet_data.py --years 2017 --tornet-data-dir /workspace/tornet_data &
-python3 download_tornet_data.py --years 2018 --tornet-data-dir /workspace/tornet_data &
-python3 download_tornet_data.py --years 2019 --tornet-data-dir /workspace/tornet_data &
-python3 download_tornet_data.py --years 2020 --tornet-data-dir /workspace/tornet_data &
-python3 download_tornet_data.py --years 2021 --tornet-data-dir /workspace/tornet_data &
-python3 download_tornet_data.py --years 2022 --tornet-data-dir /workspace/tornet_data &
+python download_tornet_data.py --years 2013 --tornet-data-dir /workspace/tornet_data &
+python download_tornet_data.py --years 2014 --tornet-data-dir /workspace/tornet_data &
+python download_tornet_data.py --years 2015 --tornet-data-dir /workspace/tornet_data &
+python download_tornet_data.py --years 2016 --tornet-data-dir /workspace/tornet_data &
+python download_tornet_data.py --years 2017 --tornet-data-dir /workspace/tornet_data &
+python download_tornet_data.py --years 2018 --tornet-data-dir /workspace/tornet_data &
+python download_tornet_data.py --years 2019 --tornet-data-dir /workspace/tornet_data &
+python download_tornet_data.py --years 2020 --tornet-data-dir /workspace/tornet_data &
+python download_tornet_data.py --years 2021 --tornet-data-dir /workspace/tornet_data &
+python download_tornet_data.py --years 2022 --tornet-data-dir /workspace/tornet_data &
+wait
+```
+
+```bash
+python download_tornet_data.py --years 2016 --tornet-data-dir /workspace/tornet_data &
+python download_tornet_data.py --years 2019 --tornet-data-dir /workspace/tornet_data &
 wait
 ```
 
@@ -217,7 +223,7 @@ cp tornado_no_madis_comparison260605005916-None-None/params.json /workspace/resu
 ```
 
 ```bash
-scp -P 34395 -i ~/.ssh/id_ed25519 -r root@70.30.158.46 :/workspace/results ./
+scp -P 34190 -i ~/.ssh/id_ed25519 -r root@70.30.158.46 :/workspace/results ./
 ```
 
 ---
@@ -236,3 +242,17 @@ Once results are downloaded, destroy the instance in the Vast.ai dashboard to st
 | No-MADIS training run | ~13 hrs | ~$2–4 |
 | MADIS training run | ~13 hrs (or less with early stopping) | ~$2–4 |
 | **Total** | | **~$4–8** |
+
+
+tornado_no_madis_comparison260706002233-None-None - run 3
+tornado_no_madis_comparison260704212441-None-None - run 2
+
+cp /workspace/tornet/tornado_no_madis_comparison260706002233-None-None/history.csv /workspace/results/no_madis_run2_history.csv
+cp /workspace/tornet/tornado_no_madis_comparison260704212441-None-None/history.csv /workspace/results/no_madis_run3_history.csv
+
+
+scp root@34190:/workspace/results/no_madis_run2_history.csv results/run_july_6th/results/
+scp root@34190:/workspace/results/no_madis_run3_history.csv results/run_july_6th/results/
+
+scp -P 34190 -i ~/.ssh/id_ed25519 root@70.30.158.46:/workspace/results/no_madis_run2_history.csv ./
+scp -P 34190 -i ~/.ssh/id_ed25519 root@70.30.158.46:/workspace/results/no_madis_run3_history.csv ./
