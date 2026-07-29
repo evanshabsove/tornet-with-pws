@@ -1,0 +1,9 @@
+# Flask API wrapping the trained tornado detector (see api/app.py)
+-r tensorflow.txt
+flask
+flask-cors
+arm_pyart
+scipy
+# Pinned: a bare `boto3` pulls a botocore newer than aiobotocore (a
+# transitive dep of arm_pyart/s3fs) allows -- see live/ingest.py.
+boto3==1.43.46

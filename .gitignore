@@ -12,3 +12,6 @@ tornado_no_madis_*
 latest
 results/*/*.keras
 tornet_code.zip
+api/static/radar/
+api/static/radar_live/
+temp_downloads/
