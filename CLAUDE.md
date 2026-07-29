@@ -32,6 +32,9 @@ python download_tornet_data.py
 
 # Download MADIS weather station data
 python download_madis_data.py
+
+# Serve the prediction API (Flask)
+python api/app.py
 ```
 
 ## Architecture Overview
@@ -128,3 +131,67 @@ Metrics in `tornet/metrics/keras/metrics.py` use `FromLogitsMixin` so they apply
 ### Pretrained Models
 
 Available via HuggingFace Hub: `tornet-ml/tornado_detector_baseline_v1`. See `models/README.md` for loading instructions.
+
+## Serving API (Flask)
+
+`api/app.py` is the deployment/demo layer — a Flask app that serves the trained detectors over HTTP, plus a live NEXRAD ingestion pipeline. It's consumed cross-origin by a separate Rails frontend (`CORS(app)`).
+
+### Running It
+
+```bash
+export TORNET_ROOT=/path/to/tornet_data
+export KERAS_BACKEND=tensorflow
+pip install -r requirements/api.txt
+python scripts/build_madis_eligible_catalog.py   # one-time, if not already built
+python scripts/build_madis_storm_ids_cache.py    # one-time, builds the /storms/madis cache
+python api/app.py                                 # serves on :5000
+```
+
+### Endpoints
+
+- `GET /health` — liveness check
+- `GET /predict/<storm_id>` — historical route. Given a NetCDF `event_id`, runs the frame through **three** model variants and returns a probability per variant, a GeoJSON point for the storm location, and a georeferenced reflectivity PNG (Py-ART) for Leaflet's `imageOverlay`
+- `GET /storms/madis` — lists storm_ids with confirmed MADIS station coverage (i.e. where all three `/predict` variants will be `available`)
+- `GET /live/sites` — status of the live NEXRAD polling pipeline per configured site
+- `GET /live/<site>/heatmap` — latest tiled tornado-probability heatmap for a live site (503 until the first poll completes)
+
+### `/predict` Three-Model Comparison
+
+`api/app.py` loads three checkpoints at startup (`MODEL_VARIANTS` / `MODELS`), all the same `run2` trial from `results/run_july_6th/results/` so the comparison isn't confounded by which random trial happened to win:
+
+| Response key | Checkpoint | `use_madis_data` | `madis_fusion` |
+|---|---|---|---|
+| `no_madis` | `no_madis_run2_best.keras` | false | — |
+| `madis` | `madis_hybrid_run2_best.keras` | true | `late` (concat after flatten) |
+| `madis_film` | `madis_film_run2_best.keras` | true | `film` (FiLM-conditions CNN features) |
+
+Response shape:
+```json
+{
+  "storm_id": 1000151,
+  "predictions": {
+    "no_madis":   {"probability": 0.83, "available": true},
+    "madis":      {"probability": 0.81, "available": true},
+    "madis_film": {"probability": 0.86, "available": true}
+  },
+  "geojson": {"type": "Point", "coordinates": [-97.5, 35.2]},
+  "radar_image_url": "...",
+  "radar_image_bounds": [...]
+}
+```
+
+`predict_storm()` reads the NetCDF frame once with `use_madis_data=True` (serves all three models); if that storm has no nearby MADIS station coverage, it falls back to a `use_madis_data=False` read so `no_madis` can still return a prediction, while `madis`/`madis_film` come back as `{"probability": null, "available": false}` instead of 404ing the whole request. Probabilities are always in `[0, 1]` (manual sigmoid applied over raw logits in `app.py`, since models output logits, not probabilities) — any percentage display (e.g. the Rails frontend) must multiply by 100 itself; the API does not do this scaling.
+
+### Live NEXRAD Pipeline
+
+Separate from `/predict`, a background daemon thread (`live/scheduler.py`) starts automatically the instant `api/app.py` runs (`live_scheduler.start()` fires at module-import time) — no separate process, cron, or task queue involved:
+
+- Polls NOAA's live NEXRAD S3 archive every `TORNET_LIVE_POLL_INTERVAL` seconds (default 120), for sites in `TORNET_LIVE_SITES` (default: auto-discovered from S3, falling back to `KTLX,KFWS,KVNX` if discovery fails)
+- Processes sites concurrently via a `ThreadPoolExecutor` (`TORNET_LIVE_MAX_WORKERS`, default 6): fetch latest volume → decode → tile → batched inference (`live/inference.py`, always the `no_madis_run2` checkpoint, since live data has no MADIS match available) → render PNG → write into `live.cache.CACHE`
+- `live/cache.py`'s `LiveCache` is an in-memory, thread-locked dict. `live/scheduler.py` is the only writer; Flask handlers (`api/live_routes.py`) only read. **Not persisted to disk** — restarting the Flask process wipes it, and `/live/<site>/heatmap` returns 503 until the next poll cycle completes.
+
+### Gotchas
+
+- Changing the `/predict` response shape requires a coordinated change on the Rails side — it's the sole consumer.
+- Loading three models at startup costs roughly 3x a single model's load time and memory footprint.
+- `live/inference.py` and `api/app.py` each load their own separate model instance(s) — they don't share weights across the two files even when pointing at the same checkpoint (e.g. `no_madis_run2`).
