@@ -1,11 +1,15 @@
 """
-Flask API wrapping the trained MADIS-FiLM tornado detector, plus a live
-NEXRAD tiling pipeline (no_madis baseline) for real-time storm data.
+Flask API wrapping three trained tornado detectors (no-MADIS baseline,
+MADIS late-fusion "hybrid", and MADIS FiLM), plus a live NEXRAD tiling
+pipeline (no_madis baseline) for real-time storm data.
 
 Given a storm_id (NetCDF event_id), loads the most recent matching radar
-frame, runs it through the existing TorNet preprocessing pipeline, and
-returns a tornado probability, a GeoJSON point for the storm location, and a
-georeferenced reflectivity PNG (Py-ART) for use with Leaflet's imageOverlay.
+frame, runs it through all three models via the existing TorNet
+preprocessing pipeline, and returns a tornado probability per model, a
+GeoJSON point for the storm location, and a georeferenced reflectivity PNG
+(Py-ART) for use with Leaflet's imageOverlay. All three share the
+run_july_6th/results "run2" checkpoint for an apples-to-apples comparison
+(same trial index across the no_madis / madis_hybrid / madis_film sweeps).
 
 Separately, a background thread (live/scheduler.py) polls NOAA's live NEXRAD
 S3 archive for a handful of configured sites, tiles each volume into
@@ -27,11 +31,12 @@ Test:
     curl http://localhost:5000/live/sites
     curl http://localhost:5000/live/KTLX/heatmap
 
-Note: the served model requires MADIS surface-weather coverage, so any
-storm_id lacking nearby MADIS station data will return a 404 even if its
-NetCDF file exists on disk -- this is expected (see read_file's rejection
-logic in tornet/data/loader.py), not a bug. GET /storms/madis lists exactly
-the storm_ids that will succeed.
+Note: the two MADIS models require MADIS surface-weather coverage. For a
+storm_id lacking nearby MADIS station data, /predict still 200s with the
+no_madis probability, but "madis" and "madis_film" come back as
+{"probability": None, "available": False} (see read_file's rejection logic
+in tornet/data/loader.py) -- this is expected, not a bug. GET /storms/madis
+lists exactly the storm_ids where all three predictions will be available.
 
 Live sites are configured via TORNET_LIVE_SITES (default: KTLX,KFWS,KOUN)
 and poll on TORNET_LIVE_POLL_INTERVAL seconds (default: 120). It can take
@@ -75,15 +80,23 @@ from live import scheduler as live_scheduler
 import live_routes
 
 MODEL_DIR = os.path.join(REPO_ROOT, "results", "run_july_6th", "results")
-MODEL_PATH = os.path.join(MODEL_DIR, "madis_film_run2_best.keras")
-PARAMS_PATH = os.path.join(MODEL_DIR, "madis_film_run2_params.json")
+
+# Same trial index ("run2") across all three sweeps, so the three-way
+# comparison isn't confounded by which random trial happened to win.
+MODEL_VARIANTS = {
+    "no_madis": "no_madis_run2",
+    "madis": "madis_hybrid_run2",
+    "madis_film": "madis_film_run2",
+}
 
 CATALOG_PATH = os.path.join(DATA_ROOT, "catalog.csv")
 MADIS_STORM_IDS_PATH = os.path.join(DATA_ROOT, "madis_eligible_storm_ids.txt")
 
 
-def _load_model():
-    with open(PARAMS_PATH) as f:
+def _load_model(name):
+    model_path = os.path.join(MODEL_DIR, f"{name}_best.keras")
+    params_path = os.path.join(MODEL_DIR, f"{name}_params.json")
+    with open(params_path) as f:
         raw = json.load(f)
     params = raw.get("config", raw)
 
@@ -100,11 +113,12 @@ def _load_model():
         l2_reg=params.get("l2_reg", 1e-5),
         madis_fusion=params.get("madis_fusion", "late"),
     )
-    model.load_weights(MODEL_PATH)
+    model.load_weights(model_path)
     return model, params
 
 
-MODEL, PARAMS = _load_model()
+# {variant_key: (keras.Model, params_dict)}
+MODELS = {key: _load_model(name) for key, name in MODEL_VARIANTS.items()}
 CATALOG = pd.read_csv(CATALOG_PATH, parse_dates=["start_time", "end_time"])
 
 with open(MADIS_STORM_IDS_PATH) as f:
@@ -126,28 +140,40 @@ def predict_storm(storm_id_raw):
     if not os.path.exists(filepath):
         abort(404, description=f"Radar sample file missing on disk for storm_id {storm_id}")
 
+    # Try once with MADIS attached (serves all three models); only re-read
+    # without it if this storm has no nearby station coverage, so the
+    # no_madis model can still produce a prediction.
     data = read_file(
         filepath,
         variables=ALL_VARIABLES,
         n_frames=1,
         tilt_last=True,
-        use_madis_data=PARAMS.get("use_madis_data", False),
-        madis_feature_set=PARAMS.get("madis_feature_set", "full"),
+        use_madis_data=True,
+        madis_feature_set="full",
     )
+    madis_available = data is not None
     if data is None:
-        abort(404, description=f"No MADIS surface-weather coverage available for storm_id {storm_id}")
+        data = read_file(filepath, variables=ALL_VARIABLES, n_frames=1, tilt_last=True, use_madis_data=False)
+    if data is None:
+        abort(404, description=f"Radar sample could not be read for storm_id {storm_id}")
 
     pp.add_coordinates(data, include_az=False, backend=np, tilt_last=True)
     data["coordinates"] = data["coordinates"][None, ...]
     if "madis" in data:
         data["madis"] = data["madis"][None, ...]
 
-    x = pp.select_keys(data, keys=list(MODEL.input.keys()))
-    # NOTE: model.predict() spins up Keras's threaded data-pipeline machinery
-    # meant for large datasets, which deadlocks for single-sample inference in
-    # some sandboxed environments. A direct call avoids that and is faster.
-    logits = keras.ops.convert_to_numpy(MODEL(x, training=False))
-    probability = float(1.0 / (1.0 + np.exp(-logits[0, 0])))
+    predictions = {}
+    for key, (model, params) in MODELS.items():
+        if params.get("use_madis_data", False) and not madis_available:
+            predictions[key] = {"probability": None, "available": False}
+            continue
+        x = pp.select_keys(data, keys=list(model.input.keys()))
+        # NOTE: model.predict() spins up Keras's threaded data-pipeline machinery
+        # meant for large datasets, which deadlocks for single-sample inference in
+        # some sandboxed environments. A direct call avoids that and is faster.
+        logits = keras.ops.convert_to_numpy(model(x, training=False))
+        probability = float(1.0 / (1.0 + np.exp(-logits[0, 0])))
+        predictions[key] = {"probability": probability, "available": True}
 
     radar_image_url, radar_image_bounds = None, None
     try:
@@ -158,7 +184,7 @@ def predict_storm(storm_id_raw):
 
     return {
         "storm_id": storm_id,
-        "probability": probability,
+        "predictions": predictions,
         "geojson": {
             "type": "Point",
             "coordinates": [float(row["lon"]), float(row["lat"])],
