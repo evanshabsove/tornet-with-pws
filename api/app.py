@@ -22,14 +22,14 @@ Run locally:
     pip install -r requirements/api.txt
     python scripts/build_madis_eligible_catalog.py       # one-time, if not already built
     python scripts/build_madis_storm_ids_cache.py        # one-time, builds the /storms/madis cache
-    python api/app.py
+    python api/app.py                                     # serves on :5050 (override with PORT)
 
 Test:
-    curl http://localhost:5000/health
-    curl http://localhost:5000/predict/1000151
-    curl http://localhost:5000/storms/madis
-    curl http://localhost:5000/live/sites
-    curl http://localhost:5000/live/KTLX/heatmap
+    curl http://localhost:5050/health
+    curl http://localhost:5050/predict/1000151
+    curl http://localhost:5050/storms/madis
+    curl http://localhost:5050/live/sites
+    curl http://localhost:5050/live/KTLX/heatmap
 
 Note: the two MADIS models require MADIS surface-weather coverage. For a
 storm_id lacking nearby MADIS station data, /predict still 200s with the
@@ -231,4 +231,4 @@ def storms_madis():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5050)), debug=False)

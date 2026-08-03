@@ -27,7 +27,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-from live import decode, ingest, tiling, inference
+from live import decode, ingest, tiling, inference, storm_detection
 from live.cache import CACHE
 from live.radar_image import render_live_radar_png
 
@@ -93,10 +93,15 @@ def process_site(site):
         site_lat = float(radar.latitude["data"][0])
         site_lon = float(radar.longitude["data"][0])
 
-        tiles = tiling.extract_tiles(tilt_data)
+        storms = storm_detection.detect_storms(tilt_data)
+        tiles = storm_detection.extract_storm_tiles(tilt_data, storms)
         tile_inputs = [tiling.build_model_input(t) for t in tiles]
         probs = inference.run_batch(tile_inputs)
 
+        # An empty `tiles` list (no storms detected) is a valid outcome --
+        # e.g. clear air or stratiform-only weather -- not an error; it
+        # still writes an OK cache entry with an empty FeatureCollection
+        # below rather than leaving a stale/error cache entry.
         features = []
         for tile, prob in zip(tiles, probs):
             center_lat, center_lon, bounds = tiling.tile_footprint_latlon(tile, site_lat, site_lon)
@@ -107,6 +112,8 @@ def process_site(site):
                     "probability": float(prob),
                     "bounds": bounds,
                     "sweep_elevation_deg": tile["elevation_deg"],
+                    "detection_max_dbz": tile.get("max_dbz"),
+                    "detection_area_gates": tile.get("area_gates"),
                 },
             })
 

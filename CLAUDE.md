@@ -144,7 +144,7 @@ export KERAS_BACKEND=tensorflow
 pip install -r requirements/api.txt
 python scripts/build_madis_eligible_catalog.py   # one-time, if not already built
 python scripts/build_madis_storm_ids_cache.py    # one-time, builds the /storms/madis cache
-python api/app.py                                 # serves on :5000
+python api/app.py                                 # serves on :5050 (override with PORT)
 ```
 
 ### Endpoints

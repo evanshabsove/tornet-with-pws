@@ -47,6 +47,45 @@ def _wrap_rows(arr, ray_start, tile_size):
     return arr[idx]
 
 
+def _slice_variables(tilt_data_list, ray_start, gate_start, az_tile, rng_tile):
+    """Slices+stacks all TorNet variables across tilts into a (az_tile,
+    rng_tile,n_tilts) array per variable, for one tile window starting at
+    (ray_start, gate_start) -- ray_start wraps circularly via _wrap_rows,
+    gate_start must already be a valid (clamped) offset into range."""
+    gate_end = gate_start + rng_tile
+    variables = {}
+    for var in ALL_VARIABLES:
+        stacked = [
+            np.ma.filled(_wrap_rows(tilt["fields"][var], ray_start, az_tile)[:, gate_start:gate_end], np.nan).astype(np.float32)
+            for tilt in tilt_data_list
+        ]
+        variables[var] = np.stack(stacked, axis=-1)  # (az_tile,rng_tile,n_tilts)
+    variables["range_folded_mask"] = np.zeros((az_tile, rng_tile, len(tilt_data_list)), dtype=np.float32)
+    return variables
+
+
+def _tile_bounds(base, ray_start, gate_start, az_tile, rng_tile):
+    """Computes az/range lower/upper + center for a tile window, from the
+    base (lowest-tilt) dict's azimuth/range grids."""
+    n_rays = len(base["azimuth"])
+    az_res = 360.0 / n_rays
+    range_arr = base["range"]
+    gate_spacing = float(range_arr[1] - range_arr[0])
+
+    az_lower = float(base["azimuth"][ray_start % n_rays])
+    rng_lower = float(range_arr[gate_start])
+
+    return {
+        "az_lower": az_lower,
+        "az_upper": az_lower + az_tile * az_res,
+        "rng_lower": rng_lower,
+        "rng_upper": rng_lower + rng_tile * gate_spacing,
+        "elevation_deg": base["elevation"],
+        "center_azimuth_deg": az_lower + (az_tile * az_res) / 2.0,
+        "center_range_m": rng_lower + (rng_tile * gate_spacing) / 2.0,
+    }
+
+
 def extract_tiles(tilt_data_list, az_tile=AZ_TILE, rng_tile=RNG_TILE,
                    az_stride=AZ_STRIDE, rng_stride=RNG_STRIDE):
     """
@@ -58,35 +97,14 @@ def extract_tiles(tilt_data_list, az_tile=AZ_TILE, rng_tile=RNG_TILE,
     base = tilt_data_list[0]
     n_rays = len(base["azimuth"])
     n_gates = len(base["range"])
-    az_res = 360.0 / n_rays
-    range_arr = base["range"]
-    gate_spacing = float(range_arr[1] - range_arr[0])
 
     tiles = []
     for ray_start in _tile_ray_starts(n_rays, az_tile, az_stride):
         for gate_start in _tile_gate_starts(n_gates, rng_tile, rng_stride):
-            gate_end = gate_start + rng_tile
-            variables = {}
-            for var in ALL_VARIABLES:
-                stacked = [
-                    np.ma.filled(_wrap_rows(tilt["fields"][var], ray_start, az_tile)[:, gate_start:gate_end], np.nan).astype(np.float32)
-                    for tilt in tilt_data_list
-                ]
-                variables[var] = np.stack(stacked, axis=-1)  # (120,240,2)
-            variables["range_folded_mask"] = np.zeros((az_tile, rng_tile, len(tilt_data_list)), dtype=np.float32)
-
-            az_lower = float(base["azimuth"][ray_start % n_rays])
-            rng_lower = float(range_arr[gate_start])
-
+            variables = _slice_variables(tilt_data_list, ray_start, gate_start, az_tile, rng_tile)
             tiles.append({
                 "variables": variables,
-                "az_lower": az_lower,
-                "az_upper": az_lower + az_tile * az_res,
-                "rng_lower": rng_lower,
-                "rng_upper": rng_lower + rng_tile * gate_spacing,
-                "elevation_deg": base["elevation"],
-                "center_azimuth_deg": az_lower + (az_tile * az_res) / 2.0,
-                "center_range_m": rng_lower + (rng_tile * gate_spacing) / 2.0,
+                **_tile_bounds(base, ray_start, gate_start, az_tile, rng_tile),
             })
     return tiles
 
